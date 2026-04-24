@@ -1,0 +1,14 @@
+# Hardened requirements - patched versions addressing CVEs in requirements.txt
+#
+# CVE-2020-14343 | PyYAML < 5.4 | CVSSv3 9.8 Critical
+#   Arbitrary code execution via YAML deserialisation with FullLoader.
+#   Fixed: upgrade to 6.0.1 (safe_load enforced in remediated_app.py).
+#
+# Flask 2.0.1 CVEs | Multiple moderate severity findings
+#   Werkzeug dependency in Flask 2.0.1 contains known vulnerabilities.
+#   Fixed: upgrade to Flask 3.0.3 which pulls Werkzeug 3.0.x (patched).
+#
+# See REMEDIATION.md SCA section for full CVE details and references.
+
+Flask==3.0.3
+PyYAML==6.0.1

