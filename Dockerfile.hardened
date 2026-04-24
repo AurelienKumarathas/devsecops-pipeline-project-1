@@ -1,0 +1,44 @@
+# Hardened Dockerfile — NexusCore Technologies
+# Remediated version of Dockerfile with all security misconfigurations fixed.
+# See REMEDIATION.md for a full before/after explanation of every change.
+
+# FIX 1: Pin base image to a specific digest to prevent supply-chain surprises.
+# 'python:3.9-slim' with a pinned SHA means the build is reproducible and
+# immune to tag-mutability attacks (where :latest could silently swap base images).
+FROM python:3.9-slim@sha256:8de463f41cfb5cac45d6e7a6a5fd26a8b9bbc2060b7b6e3b7e7e17e4a9d67d7a
+
+# FIX 2: Remove unnecessary packages — curl, wget, vim, net-tools.
+# Attack surface reduction: every binary installed in a container is a potential
+# pivot tool for an attacker who achieves code execution. Slim base already
+# excludes most of them; this step ensures none are added back.
+# Only install what the application actually needs at runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY src/ ./src/
+
+# FIX 3: Create and switch to a non-root user.
+# Running as root inside a container means any RCE vulnerability grants the
+# attacker root on the container, making container escape and host pivot trivial.
+# A dedicated low-privilege user limits the blast radius.
+RUN groupadd --gid 1001 appgroup \
+    && useradd --uid 1001 --gid appgroup --shell /bin/sh --no-create-home appuser
+
+USER appuser
+
+EXPOSE 5000
+
+# FIX 4: Use exec form CMD instead of shell form.
+# Shell form (CMD python src/app.py) spawns a /bin/sh -c wrapper, meaning
+# SIGTERM from 'docker stop' hits the shell, not Python — the app never gets
+# a graceful shutdown signal. Exec form sends signals directly to the process.
+CMD ["python", "src/remediated_app.py"]
