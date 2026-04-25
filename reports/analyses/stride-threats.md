@@ -1,112 +1,101 @@
 # STRIDE Threat Register — NexusCore Technologies
 
 **Version:** 1.1  
-**Total Threats:** 31  
-**Methodology:** STRIDE per component
+**Scope:** Flask app (`src/vulnerable_app.py`), Dockerfile, `terraform/main.tf`, GitHub Actions pipeline  
+**Methodology:** STRIDE per component  
+**All threats grounded in confirmed vulnerabilities in this repository.**
 
 ---
 
-## A — Spoofing (5 threats)
+## S — Spoofing
 
 | ID | Component | Threat | Severity | Mitigation |
 |----|-----------|--------|----------|------------|
-| S1 | Flask API | Attacker replays stolen session token to impersonate authenticated merchant | High | Implement JWT expiry + rotation; bind tokens to IP/user-agent |
-| S2 | GitHub Actions | Attacker spoofs a trusted GitHub Actions workflow by forking and crafting a malicious PR | High | Require branch protection; pin Actions to commit SHA |
-| S3 | AWS IAM | Attacker uses stolen `AWS_ACCESS_KEY_ID` (hardcoded in source) to impersonate CI/CD service role | Critical | Rotate all credentials immediately; use OIDC for GitHub Actions → AWS auth |
-| S4 | Docker Registry | Attacker publishes a malicious image with the same tag as the production image (`python:3.9`) | Critical | Pin all base images to immutable digest (`@sha256:...`) |
-| S5 | RDS | Attacker connects to PostgreSQL using hardcoded `DB_PASSWORD` found in source | Medium | Remove hardcoded credentials; use AWS Secrets Manager |
+| S1 | GitHub Actions | Attacker with a leaked `GITHUB_TOKEN` (e.g. from a public Actions log) impersonates the CI/CD service to trigger pipeline runs or read repository secrets | High | Restrict `GITHUB_TOKEN` permissions to minimum required per job; rotate on exposure |
+| S2 | GitHub Actions | Attacker spoofs a trusted workflow by forking the repo and crafting a malicious PR that targets an unpinned `aquasecurity/trivy-action@master` action | High | Pin all Actions to immutable commit SHAs, not floating version tags |
+| S3 | AWS IAM | Attacker uses hardcoded `DB_PASSWORD` from `terraform/main.tf` user_data to impersonate the EC2 application service | Critical | Remove all hardcoded credentials; use AWS Secrets Manager or IAM instance profiles |
+| S4 | Docker Registry | Attacker publishes a malicious image update under the mutable `python:3.9` tag, silently replacing the base image on the next build | Critical | Pin base image to an immutable SHA digest (`FROM python:3.9@sha256:...`) |
+| S5 | Flask API | Attacker provides a crafted `API_KEY` matching the hardcoded value in `vulnerable_app.py` to impersonate a trusted internal client | Medium | Remove hardcoded credentials; issue scoped API keys via a secrets manager |
 
 ---
 
-## B — Tampering (6 threats)
+## T — Tampering
 
 | ID | Component | Threat | Severity | Mitigation |
 |----|-----------|--------|----------|------------|
-| T1 | CI/CD Pipeline | Attacker with write access modifies `.github/workflows/devsecops-pipeline.yml` to disable security gates | Critical | Require PR reviews for workflow changes; use CODEOWNERS |
-| T2 | Source Code | Attacker injects malicious commit to `vulnerable_app.py` via compromised developer account | Critical | Enforce signed commits (GPG); require 2 reviewers |
-| T3 | Terraform IaC | Attacker modifies `terraform/main.tf` to open additional ports or disable encryption before `terraform apply` | Critical | IaC changes require security review; use Sentinel policy-as-code |
-| T4 | S3 Bucket | Attacker overwrites card payment exports in S3 after gaining access via misconfigured bucket policy | High | Enable S3 Object Lock; enable versioning |
-| T5 | Docker Image | Unpinned `python:3.9` base image silently updated by upstream to include a malicious layer | High | Pin base image; verify digest in CI |
-| T6 | Dependencies | CVE-2020-14343 — PyYAML 5.4.1 arbitrary code execution via YAML deserialization | Medium | Upgrade to PyYAML ≥ 6.0; add Trivy to block on Critical CVEs |
+| T1 | CI/CD Pipeline | Attacker with write access modifies `.github/workflows/devsecops-pipeline.yml` to disable security gates or inject a malicious step — **all Actions are currently pinned to floating tags, making this trivially exploitable via an upstream compromise** | Critical | Require PR reviews for workflow changes; use CODEOWNERS; pin Actions to commit SHAs |
+| T2 | Source Code | Attacker injects a malicious commit to `vulnerable_app.py` via a compromised developer account | Critical | Enforce signed commits (GPG); require 2 reviewers on all PRs; enable branch protection |
+| T3 | Terraform IaC | Attacker modifies `terraform/main.tf` to open additional ports or remove the `encrypted = false` marker before `terraform apply` | Critical | IaC changes require a security review gate; use Sentinel/OPA policy-as-code |
+| T4 | S3 Bucket | Attacker overwrites objects in the S3 bucket (public access blocks all disabled in `terraform/main.tf`) after gaining access via the open security group | High | Enable all four `block_public_*` settings; enable S3 Object Lock and versioning |
+| T5 | Docker Image | Unpinned `python:3.9` base image (`Dockerfile` line 12) silently updated by upstream to include a malicious layer | High | Pin base image to SHA digest; verify digest in CI |
+| T6 | Dependencies | CVE-2020-14343 in PyYAML 5.4.1 (`requirements.txt`) — CVSS 9.8 Critical — arbitrary code execution via YAML deserialisation in `load_config` endpoint | Critical | Upgrade PyYAML to ≥ 6.0; configure Trivy to block on Critical severity |
 
 ---
 
-## C — Repudiation (4 threats)
+## R — Repudiation
 
 | ID | Component | Threat | Severity | Mitigation |
 |----|-----------|--------|----------|------------|
-| R1 | AWS CloudTrail | Attacker disables CloudTrail logging to remove evidence of credential abuse | Critical | Enable CloudTrail with S3 log integrity validation; alert on disable events |
-| R2 | Flask API | No request logging — attacker can exfiltrate data via SQL injection with no audit trail | High | Implement structured logging (request ID, user ID, endpoint, status) |
-| R3 | GitHub Actions | Pipeline runs with no tamper-evident log export — attacker can delete run logs | High | Export SARIF and job logs to immutable S3 archive |
-| R4 | RDS | No query logging enabled — SQL injection activity leaves no database audit trail | Medium | Enable RDS PostgreSQL `log_statement = all`; ship to CloudWatch |
+| R1 | AWS CloudTrail | Attacker with IAM access disables CloudTrail (enabled by default but not enforced via SCP/policy) to remove evidence of credential abuse via hardcoded EC2 user_data credentials | Critical | Enable CloudTrail with S3 log integrity validation; alert on disable events via CloudWatch |
+| R2 | Flask API | No request logging in `vulnerable_app.py` — SQL injection and path traversal exploitation leave no audit trail | High | Implement structured request logging (request ID, endpoint, source IP, status code) |
+| R3 | GitHub Actions | Pipeline run logs can be deleted by a repo admin — no tamper-evident log export | High | Export SARIF reports and job logs to an immutable S3 archive on every run |
+| R4 | Flask API | No SQL query logging — SQL injection activity via the `/user` endpoint leaves no database audit trail (SQLite, no query log facility) | Medium | Add application-level query logging wrapping all `cursor.execute()` calls; ship to a log aggregator |
 
 ---
 
-## D — Information Disclosure (7 threats)
+## I — Information Disclosure
 
 | ID | Component | Threat | Severity | Mitigation |
 |----|-----------|--------|----------|------------|
-| I1 | Source Code | `AWS_SECRET_ACCESS_KEY`, `DB_PASSWORD`, `API_KEY` hardcoded in `vulnerable_app.py` and `terraform/main.tf` | Critical | Use AWS Secrets Manager / environment variables; Gitleaks blocks this in CI |
-| I2 | Flask API | SQL injection on `/user?name=` endpoint dumps full `users` table including password hashes | Critical | Parameterise all queries; principle of least privilege on DB user |
-| I3 | Flask API | SSTI via `render_template_string()` — attacker can read environment variables including secrets | Critical | Never pass user input to template engine; use static templates |
-| I4 | S3 Bucket | Public access blocks disabled — unauthenticated HTTP GET downloads card payment exports | Critical | Enable all four S3 `block_public_*` settings; bucket policy denies non-VPC access |
-| I5 | Flask API | Debug mode enabled (`debug=True`) — stack traces with file paths and env vars exposed to users | High | Set `debug=False` in production; use a WSGI server (gunicorn) |
-| I6 | Docker Container | Container runs as root — any RCE exposes entire filesystem including mounted secrets | High | Add `USER appuser` to Dockerfile; use read-only filesystem |
-| I7 | GitHub Repo | Public repository exposes intentional vulnerabilities — ensure fake credentials are clearly marked | Medium | README warning added; all credentials are dummy values validated by Gitleaks |
+| I1 | Source Code | `DATABASE_PASSWORD` and `API_KEY` hardcoded in `vulnerable_app.py`; `DB_PASSWORD` hardcoded in `terraform/main.tf` user_data — all detected by Gitleaks | Critical | Use AWS Secrets Manager or environment variables; Gitleaks gate blocks this in CI |
+| I2 | Flask API | SQL injection on `/user?username=` endpoint — f-string concatenation allows full SQLite database dump | Critical | Parameterise all queries: `cursor.execute("SELECT * FROM users WHERE username = ?", (username,))` |
+| I3 | Flask API | SSTI via `render_template_string()` in `/greet` — Jinja2 expression in URL parameter achieves RCE and environment variable disclosure | Critical | Never pass user input to a template engine; use a static template with `{{ name }}` passed as a context variable |
+| I4 | S3 Bucket | All four public access blocks disabled in `terraform/main.tf` — unauthenticated HTTP GET can download any object | Critical | Enable `block_public_acls`, `block_public_policy`, `ignore_public_acls`, `restrict_public_buckets` |
+| I5 | Flask API | `debug=True` in `app.run()` — stack traces including file paths, local variables, and environment variables exposed to all users | High | Set `debug=False`; serve via a production WSGI server (gunicorn) |
+| I6 | Docker Container | No `USER` instruction in `Dockerfile` — container runs as root; any RCE immediately exposes entire filesystem including any mounted secrets | High | Add `RUN useradd -m appuser` and `USER appuser` before `CMD` |
+| I7 | Flask API | Path traversal in `/read_file` — no validation on `filename` parameter allows reading any file accessible to the container process | High | Validate and sanitise the filename; restrict to an explicit allowlist of permitted files |
 
 ---
 
-## E — Denial of Service (5 threats)
+## D — Denial of Service
 
 | ID | Component | Threat | Severity | Mitigation |
 |----|-----------|--------|----------|------------|
-| D1 | Flask API | `/ping` endpoint with `shell=True` — attacker passes `;:(){ :|:& };:` fork bomb payload | Critical | Remove `shell=True`; use `shlex.split()` + allowlist of permitted commands |
-| D2 | RDS | SQL injection used to execute long-running queries (`SLEEP`, `pg_sleep`) causing connection exhaustion | High | Parameterise queries; set query timeout on DB connection pool |
-| D3 | ECS | Container with no resource limits — runaway process consumes all CPU/memory on Fargate task | High | Set `cpu` and `memory` limits in ECS task definition |
-| D4 | S3 | Attacker repeatedly requests large S3 objects — cost-based DoS via egress billing | Medium | Enable S3 request metrics; set billing alerts; consider CloudFront CDN |
-| D5 | GitHub Actions | Pipeline with no timeout — malicious workflow step hangs indefinitely consuming Actions minutes | Medium | Set `timeout-minutes` on all jobs and steps |
+| D1 | Flask API | `/ping` endpoint with `shell=True` — attacker passes a fork bomb payload (`;:(){ :\|:& };:`) causing process exhaustion and container crash | Critical | Remove `shell=True`; use `shlex.split()` and an allowlist of permitted hostnames |
+| D2 | Flask API | Long-running SQLite queries injected via `/user` (e.g. recursive CTEs) cause connection blocking and application hang | High | Parameterise queries; set a connection timeout on the SQLite connection |
+| D3 | EC2 Instance | No CloudWatch CPU/memory alarms on the EC2 instance — a fork bomb or resource exhaustion attack consumes host resources with no auto-recovery or alerting | High | Configure CloudWatch alarms for CPU > 80% sustained; use Auto Scaling or a watchdog process |
+| D4 | S3 Bucket | Attacker repeatedly requests large objects from the publicly accessible S3 bucket — cost-based denial of service via AWS egress billing | Medium | Enable S3 request metrics; set billing alerts; restrict public access (see I4) |
+| D5 | GitHub Actions | No `timeout-minutes` on any job in `devsecops-pipeline.yml` — a malicious or hung workflow step consumes Actions minutes indefinitely | Medium | Set `timeout-minutes` on all jobs and individual steps |
 
 ---
 
-## E — Elevation of Privilege (4 threats)
+## E — Elevation of Privilege
 
 | ID | Component | Threat | Severity | Mitigation |
 |----|-----------|--------|----------|------------|
-| E1 | Docker Container | Container runs as root (`no USER` instruction) — container escape grants host-level privileges | Critical | `USER appuser` in Dockerfile; `--read-only` filesystem; drop all capabilities |
-| E2 | AWS IAM | CI/CD role has overly broad IAM permissions — compromised pipeline can escalate to `AdministratorAccess` | Critical | Apply least-privilege IAM; use permission boundaries; audit with IAM Access Analyzer |
-| E3 | Terraform | Security group allows all inbound/outbound on `0.0.0.0/0` — attacker can reach any internal service | High | Restrict to known CIDR ranges; separate security groups per service tier |
-| E4 | EC2 Root Volume | `encrypted = false` on root EBS volume — physical access or snapshot leak exposes full OS disk | Medium | Set `encrypted = true`; use AWS KMS CMK |
+| E1 | Docker Container | No `USER` instruction — container runs as root (UID 0); container escape via kernel exploit or `--privileged` grants host-level privileges | Critical | `RUN useradd -m appuser && USER appuser`; add `--read-only` filesystem; drop all capabilities |
+| E2 | AWS IAM | If the CI/CD pipeline's IAM role has overly broad permissions (common in demo setups), a compromised pipeline step can call `sts:AssumeRole` to escalate to higher-privilege roles | Critical | Apply least-privilege IAM; use permission boundaries; audit with IAM Access Analyzer |
+| E3 | Terraform | Security group in `terraform/main.tf` allows all inbound and outbound on `0.0.0.0/0` — attacker reaching any open port can access all internal services on the EC2 instance | High | Restrict ingress to known CIDR ranges and specific ports (443, 5000); separate security groups per service tier |
+| E4 | EC2 Root Volume | `encrypted = false` on root EBS volume (`terraform/main.tf`) — an EBS snapshot or physical access exposes the full OS disk including any in-memory secrets written to disk | Medium | Set `encrypted = true`; use an AWS KMS Customer Managed Key |
 
-### E5 — Insider Threat: Bulk Export (UBA Detection Triggers)
+### E5 — Insider Threat: Bulk Cardholder Data Export
 
-Scenario: A malicious or compromised internal user with legitimate access to the NexusCore merchant data API performs a bulk exfiltration of cardholder records.
+**Scenario:** A malicious or compromised internal user with legitimate access to the NexusCore payments API performs a bulk exfiltration of merchant or cardholder records via the `/user` endpoint or direct S3 access (the bucket is publicly accessible with no access controls).
 
 **User Behaviour Analytics (UBA) detection triggers — alert on any of the following:**
 
 | # | Trigger | Threshold | Severity |
 |---|---------|-----------|----------|
-| 1 | Bulk record export in a single session | > 500 records in one session | Critical |
+| 1 | Bulk record export in a single session | > 500 merchant/cardholder records in one session | Critical |
 | 2 | Off-hours access | Any access outside 07:00–21:00 local time | High |
-| 3 | Access from new or unrecognised geolocation | First access from a new country/city | High |
-| 4 | Patient/merchant records accessed outside assigned list | > 3 records outside authorised scope | High |
+| 3 | Access from new or unrecognised geolocation | First-ever access from a new country or city | High |
+| 4 | Cardholder records accessed outside authorised scope | > 3 records outside the user's assigned merchant portfolio | High |
 | 5 | API calls at machine speed | > 20 requests/second sustained for ≥ 10 seconds | Critical |
 
 **Recommended controls:**
-- Integrate with AWS CloudTrail + Athena for API call volume analysis
-- SIEM rule: alert when any single IAM principal triggers ≥ 2 of the above in a 30-minute window
-- Apply field-level encryption on sensitive columns (PAN, CVV) so even authorised access returns masked data by default
-- Require step-up MFA for exports > 100 records
+- AWS CloudTrail + Athena: query API call volume per IAM principal
+- SIEM rule: alert when any single principal triggers ≥ 2 of the above triggers in a 30-minute window
+- Require step-up MFA for bulk exports > 100 records
+- Field-level masking on PAN/CVV so even authorised access returns masked data by default
 
----
-
-## Threat Count Verification
-
-| Category | Count |
-|----------|-------|
-| Spoofing | 5 |
-| Tampering | 6 |
-| Repudiation | 4 |
-| Information Disclosure | 7 |
-| Denial of Service | 5 |
-| Elevation of Privilege | 4 (+ E5 insider scenario) |
-| **Total** | **31** |
+**Why this threat is in scope here:** The S3 bucket in `terraform/main.tf` has all public access blocks disabled. An insider (or anyone with the bucket name) can exfiltrate all stored data with a single unauthenticated `aws s3 cp` command.
