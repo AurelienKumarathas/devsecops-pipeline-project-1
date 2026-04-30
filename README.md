@@ -1,6 +1,10 @@
 # 🔐 DevSecOps Pipeline — NexusCore Technologies
 
-![DevSecOps Pipeline](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/actions/workflows/devsecops-pipeline.yml/badge.svg)
+| Branch | Pipeline Status |
+|--------|-----------------|
+| `main` (intentionally vulnerable) | ![main](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/actions/workflows/devsecops-pipeline.yml/badge.svg?branch=main) |
+| `hardened` (fully remediated) | ![hardened](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/actions/workflows/devsecops-pipeline.yml/badge.svg?branch=hardened) |
+
 ![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?style=flat&logo=githubactions&logoColor=white)
 ![AWS](https://img.shields.io/badge/Cloud-AWS-FF9900?style=flat&logo=amazonaws&logoColor=white)
 ![CodeQL](https://img.shields.io/badge/SAST-CodeQL-6F42C1?style=flat)
@@ -41,12 +45,14 @@ This repo demonstrates that pipeline end-to-end — including the intentionally 
 
 ## 🔒 Hardened Branch — Remediation Demo
 
-The [`hardened` branch](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/tree/hardened) contains the security-engineered versions of every vulnerable file. This transforms the project from a scanner demo into a full security engineering exercise.
+The [`hardened` branch](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/tree/hardened) contains the security-engineered versions of every vulnerable file. All five security gates pass on that branch.
 
 | File | What changed |
 |------|--------------|
 | [`Dockerfile.hardened`](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/blob/hardened/Dockerfile.hardened) | Pinned base image digest, non-root user, removed unnecessary packages, exec form CMD |
 | [`src/remediated_app.py`](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/blob/hardened/src/remediated_app.py) | Parameterised queries, subprocess removed, `yaml.safe_load`, `debug=False`, path traversal fix, credentials from env vars |
+| [`requirements-hardened.txt`](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/blob/hardened/requirements-hardened.txt) | PyYAML 6.0.2, Flask 3.0.3 — no known CVEs |
+| [`terraform/main.tf`](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/blob/hardened/terraform/main.tf) | S3 public access blocks enabled, restricted security group, EBS encryption, Secrets Manager |
 
 [**→ Read REMEDIATION.md for the full before/after technical breakdown**](REMEDIATION.md)
 
@@ -60,13 +66,25 @@ The [`hardened` branch](https://github.com/AurelienKumarathas/devsecops-pipeline
 
 ---
 
+## 📄 Security Analysis Documents
+
+Beyond running scanners, this project includes three dedicated security analysis documents authored against the NexusCore threat landscape:
+
+| Document | What it covers |
+|----------|----------------|
+| [STRIDE Threat Register](reports/analyses/stride-threats.md) | Full STRIDE analysis across all six categories — Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege — each threat tied to a specific file or component in the repo |
+| [MITRE ATT&CK Mapping](reports/analyses/mitre-mapping.md) | Pipeline vulnerabilities mapped to MITRE ATT&CK Enterprise techniques — Initial Access, Execution, Persistence, Exfiltration |
+| [Kill Chain Analysis](reports/analyses/kill-chain-analysis.md) | Three end-to-end attack chains showing how an attacker could chain the intentional vulnerabilities from initial access to full compromise |
+
+---
+
 ## 🛠️ Security Tools
 
 | Tool | Purpose | Stage |
 |------|---------|-------|
 | **CodeQL** | Static Application Security Testing (SAST) — analyses Python source for injection flaws, path traversal, and unsafe API usage | Build |
 | **Trivy** | Software Composition Analysis (SCA) — scans `requirements.txt` for known CVEs | Build |
-| **Gitleaks** | Secret Detection — scans entire git history for credentials, API keys, and tokens | Pre-commit / CI |
+| **Gitleaks** | Secret Detection — scans entire git history and working tree for credentials, API keys, and tokens | Pre-commit / CI |
 | **Trivy IaC** | Infrastructure as Code Security — scans Terraform for misconfigurations against CIS benchmarks | Build |
 | **Trivy Container** | Container image scanning — checks the built Docker image for OS-level CVEs and misconfigurations | Post-build |
 | **GitHub Security Tab** | Centralised SARIF vulnerability reporting — all tool findings are visible in one place at the PR level | Post-scan |
@@ -127,7 +145,7 @@ Each vulnerability is chosen to exercise a specific security gate. The scanner f
 
 ---
 
-## 🏛️ Terraform Note
+## 🏗️ Terraform Note
 
 The `terraform/main.tf` in this repo is an **intentionally minimal demo** containing three deliberate misconfigurations, included solely to give the IaC scanning stage something to find. It is not a production Terraform module.
 
@@ -168,11 +186,12 @@ git checkout hardened
 | CI/CD Pipeline Design | GitHub Actions | Multi-job pipeline with dependencies, conditional steps, and SARIF integration |
 | SAST | CodeQL | Python static analysis catching injection flaws at the AST level |
 | SCA | Trivy | CVE matching against known vulnerability databases for direct and transitive dependencies |
-| Secret Detection | Gitleaks | Full git history scanning, not just the working tree |
+| Secret Detection | Gitleaks | Full git history scanning + working tree filesystem scan |
 | IaC Security | Trivy IaC | CIS benchmark checks on Terraform before cloud resources are provisioned |
 | Container Security | Docker + Trivy | Secure image best practices and OS-level CVE detection |
 | Vulnerability Reporting | SARIF + GitHub Security tab | Centralised findings visible in PR reviews, not buried in CI logs |
 | Security Engineering | REMEDIATION.md + hardened branch | Demonstrates ability to fix vulnerabilities, not just find them |
+| Threat Modelling | STRIDE + MITRE ATT&CK + Kill Chain | Structured threat analysis beyond automated scanning |
 
 ---
 
