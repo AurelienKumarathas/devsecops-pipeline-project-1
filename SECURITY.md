@@ -1,44 +1,26 @@
-# Security Policy — NexusCore DevSecOps Pipeline
+# Security Policy — NexusCore Technologies
 
-## ⚠️ Important Notice
+## Scope
 
-This repository contains **intentionally vulnerable code** for educational and portfolio demonstration purposes. The vulnerable files are:
-
-- `src/vulnerable_app.py` — Flask app with SQL injection, command injection, SSTI, path traversal, insecure deserialization, hardcoded credentials, and debug mode enabled
-- `Dockerfile` — container with root user, unpinned base image, unnecessary packages, and shell form CMD
-- `terraform/main.tf` — IaC with public S3 bucket, open security groups, and unencrypted EBS
-
-**Do not deploy these files to any environment.** The hardened equivalents are `Dockerfile.hardened` and `src/remediated_app.py`.
-
----
+This is an **educational repository** containing intentionally vulnerable code built to demonstrate a DevSecOps pipeline. All credentials, secrets, and API keys present in the `main` branch are **fake dummy values** that exist solely to trigger and validate secret detection tooling (Gitleaks). They have never been used in any real system.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in this repository that is **not one of the intentional vulnerabilities documented in [REMEDIATION.md](REMEDIATION.md)**, please report it responsibly.
+If you discover a genuine security issue with the pipeline configuration, GitHub Actions workflows, or any other non-intentional vulnerability in this repository, please:
 
-**Please do not open a public GitHub issue for security vulnerabilities.**
+1. **Do not open a public GitHub issue.**
+2. Email the maintainer at the address listed on the GitHub profile.
+3. Include a description of the finding, the affected file(s), and steps to reproduce.
 
-Contact: Open a [GitHub Security Advisory](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/security/advisories/new) to report privately.
+Expect a response within 48 hours.
 
-Expected response time: 5 business days.
+## Intentional Vulnerabilities
 
----
+The following are **by design** and do not require reporting:
 
-## Security Scanning
+- All vulnerabilities documented in [`REMEDIATION.md`](REMEDIATION.md)
+- All STRIDE threats listed in [`reports/analyses/stride-threats.md`](reports/analyses/stride-threats.md)
+- All pipeline failures on the `main` branch (Gitleaks, Trivy SCA, Trivy IaC, Trivy Container)
+- Hardcoded fake credentials in `src/vulnerable_app.py` and `terraform/main.tf`
 
-This repository runs automated security scans on every push via GitHub Actions:
-
-| Tool | Coverage |
-|------|----------|
-| **CodeQL** | SAST — Python static analysis |
-| **Trivy** | SCA — dependency CVEs; container image scanning |
-| **Gitleaks** | Secret detection across all commits |
-| **Trivy IaC** | Terraform misconfiguration scanning |
-
-All findings are uploaded to the [GitHub Security tab](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/security/code-scanning) as SARIF reports.
-
----
-
-## Supported Versions
-
-This is a portfolio/educational project. Only the `main` branch is maintained.
+The [`hardened` branch](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/tree/hardened) contains the remediated versions of all intentionally vulnerable files.
