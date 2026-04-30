@@ -1,6 +1,6 @@
 # Remediation Guide — NexusCore Technologies
 
-**Scope:** Technical before/after remediation detail for all findings across `src/vulnerable_app.py`, `Dockerfile`, `terraform/main.tf`, `requirements.txt`, and `.github/workflows/devsecops-pipeline.yml`
+**Scope:** Technical before/after remediation detail for all findings across `src/vulnerable_app.py`, `Dockerfile`, `terraform/main.tf`, `requirements.txt`, `.github/workflows/devsecops-pipeline.yml`, and `src/remediated_app.py`
 
 > **Full before/after code diffs and the hardened versions of all files are on the [`hardened` branch](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/tree/hardened).**  
 > This file provides a structured index of what was fixed and why.
@@ -26,11 +26,23 @@
 | 13 | `terraform/main.tf` | `associate_public_ip_address = true` | High | Moved EC2 to private subnet behind ALB |
 | 14 | `terraform/main.tf` | Hardcoded `DB_PASSWORD` in EC2 `user_data` | Critical | Replaced with `aws_secretsmanager_secret_version` data source |
 | 15 | `Dockerfile` | No `USER` instruction — runs as root | Critical | `RUN useradd -m appuser && USER appuser` |
-| 16 | `Dockerfile` | Unpinned base image (`python:3.9`) | High | Pinned to `python:3.9-slim@sha256:<verified digest>` — also switches to slim base, eliminating ~3,900 transitive OS-level CVEs |
+| 16 | `Dockerfile` | Unpinned base image (`python:3.9`) | High | Pinned to `python:3.9-slim@sha256:<verified digest>` — switches to slim base, eliminating ~3,900 transitive OS-level CVEs |
 | 17 | `Dockerfile` | Unnecessary packages (curl, wget, vim, net-tools) | High | Removed all; `python:3.9-slim` base no longer ships them |
 | 18 | `Dockerfile` | No `HEALTHCHECK` instruction | Medium | Added `HEALTHCHECK` with appropriate interval and threshold |
 | 19 | `Dockerfile` | Shell-form `CMD` — SIGTERM not forwarded | Low | Exec-form `CMD ["gunicorn", ...]` |
 | 20 | `.github/workflows/` | Actions pinned to floating tags — remediated in v1.2 | High → Residual: Low | All Actions pinned to immutable commit SHAs; quarterly SHA rotation recommended |
+
+---
+
+## CodeQL-Identified Findings in Remediated Code
+
+During CI on the hardened branch, CodeQL identified 3 additional High severity findings inside `src/remediated_app.py` itself — the file written to fix the original vulnerabilities. These were caught, triaged, and fixed in v1.2. This is the pipeline working exactly as intended: catching residual issues even in security-engineered code.
+
+| # | File | Finding | Severity | Root Cause | Fix Applied |
+|---|------|---------|----------|------------|-------------|
+| 21 | `src/remediated_app.py` | Reflected XSS — `/greet` endpoint | High | Fixing SSTI by removing `render_template_string()` introduced a new issue: user input was returned in an f-string with `Content-Type: text/plain`. CodeQL's taint analysis correctly flagged the unescaped user value in the response. | Added `import html` and wrapped the name with `html.escape()` before it appears in the response. Any HTML special characters (`<`, `>`, `"`, `&`) are now encoded as entities, neutralising both the original SSTI and the reflected XSS. |
+| 22 | `src/remediated_app.py` | Reflected XSS — `/load_config` endpoint | High | `return str(config)` reflected the parsed user-supplied YAML back in the response body. Even though `yaml.safe_load()` prevents code execution, returning user-controlled data in the response is a reflected XSS vector. | Changed the response to a fixed status string: `"Config loaded successfully."` User input is now consumed (parsed and validated) but never echoed back. |
+| 23 | `src/remediated_app.py` | Uncontrolled path expression — `/read_file` endpoint | High | The initial fix used `os.path.basename(filename)` to strip traversal sequences before constructing the path. CodeQL's inter-procedural data flow analysis traced the taint from `request.args` through `basename()` → `join()` → `realpath()` → `open()` and flagged it: user input still ultimately reached the filesystem call. | Replaced the sanitisation approach with an explicit `ALLOWED_FILES` dict mapping safe keys to hardcoded literal paths. User input is now used only as a dict lookup key — the value passed to `open()` is always a compile-time string constant. Taint chain fully severed. |
 
 ---
 
