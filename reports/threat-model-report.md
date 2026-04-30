@@ -86,22 +86,32 @@ All threats in this model are grounded in the following confirmed vulnerabilitie
 
 ## Remediation Roadmap
 
-| Priority | Finding | Sprint |
-|----------|---------|--------|
-| 🔴 Critical | Rotate all leaked credentials | Sprint 1 |
-| 🔴 Critical | Fix SQL injection — parameterised queries | Sprint 1 |
-| 🔴 Critical | Fix command injection — remove `shell=True` | Sprint 1 |
-| 🔴 Critical | Pin Docker base image to SHA digest | Sprint 1 |
-| 🔴 Critical | Add non-root `USER` to Dockerfile | Sprint 1 |
-| 🟠 High | Upgrade PyYAML — CVE-2020-14343 | Sprint 2 |
-| 🟠 High | Restrict S3 bucket public access | Sprint 2 |
-| 🟠 High | Enable EC2 root volume encryption | Sprint 2 |
-| 🟠 High | Tighten security group egress rules | Sprint 2 |
-| 🟠 High | Pin GitHub Actions to commit SHAs | Sprint 2 |
-| 🟡 Medium | Implement application-level audit logging | Sprint 3 |
-| 🟡 Medium | Enable MFA on all AWS IAM accounts | Sprint 3 |
-| 🟡 Medium | Move secrets to AWS Secrets Manager | Sprint 3 |
-| 🟡 Medium | Add `HEALTHCHECK` to Dockerfile | Sprint 3 |
+```mermaid
+gantt
+    title Remediation Roadmap — NexusCore Technologies
+    dateFormat YYYY-MM-DD
+    axisFormat Sprint %W
+
+    section Sprint 1 — Critical
+    Rotate all leaked credentials           :crit, s1a, 2024-01-01, 7d
+    Fix SQL injection (parameterised queries):crit, s1b, 2024-01-01, 7d
+    Fix command injection (remove shell=True):crit, s1c, 2024-01-01, 7d
+    Pin Docker base image to SHA digest     :crit, s1d, 2024-01-01, 7d
+    Add non-root USER to Dockerfile         :crit, s1e, 2024-01-01, 7d
+
+    section Sprint 2 — High
+    Upgrade PyYAML (CVE-2020-14343)         :active, s2a, 2024-01-08, 7d
+    Restrict S3 bucket public access        :active, s2b, 2024-01-08, 7d
+    Enable EC2 root volume encryption       :active, s2c, 2024-01-08, 7d
+    Tighten security group egress rules     :active, s2d, 2024-01-08, 7d
+    Pin GitHub Actions to commit SHAs       :active, s2e, 2024-01-08, 7d
+
+    section Sprint 3 — Medium
+    Application-level audit logging         :s3a, 2024-01-15, 7d
+    Enable MFA on all AWS IAM accounts      :s3b, 2024-01-15, 7d
+    Move secrets to AWS Secrets Manager     :s3c, 2024-01-15, 7d
+    Add HEALTHCHECK to Dockerfile           :s3d, 2024-01-15, 7d
+```
 
 ---
 

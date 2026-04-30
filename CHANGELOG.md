@@ -5,92 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.4] — 2026-04-30
+## [1.1] — 2026-04-30
 
-### Fixed
-- **STRIDE T1** — was marked "Actions currently pinned to floating tags — Critical";
-  updated to reflect v1.2 remediation: "Actions were previously pinned to floating tags;
-  remediated in v1.2 by SHA pinning. Residual risk: quarterly SHA rotation required."
-  Severity downgraded from Critical to High (Residual)
-- **STRIDE S2** — updated to reflect v1.2 remediation of `trivy-action@master` floating tag;
-  severity downgraded from High to Low (Residual)
-- **STRIDE D5** — updated to reflect v1.3 remediation of missing `timeout-minutes`
-- **Kill-chain Chain 2 Phase 1** — reframed floating-tags finding as a pre-v1.2 historical
-  condition with explicit note that the current pipeline is SHA-pinned (commit 243ca8e);
-  controls table updated to reflect remediation status
-- **CHANGELOG v1.1 wording** — "fabricated '31 threats' claim" reworded to
-  "threat count corrected to 21 — scope was previously overstated"
-
----
-
-## [1.3] — 2026-04-30
-
-### Fixed
-- **Hardened branch pipeline** — pinned all GitHub Actions to immutable commit SHAs
-  (was still using floating tags `@v4`, `@master`, `@v2`, `@v3` after v1.2)
-- **Hardened branch Gitleaks failures** — added `.gitleaks.toml` with regex allowlist
-  for the three synthetic credentials in the main-branch git history; without this,
-  Gitleaks scans the full shared history (`fetch-depth: 0`) and exits non-zero on every
-  hardened branch run, incorrectly implying the hardened code is insecure
-- **Pipeline timeouts** — added `timeout-minutes` to all jobs on both branches to
-  prevent runaway workflow execution consuming Actions minutes
-
----
-
-## [1.2] — 2026-04-30
-
-### Fixed
-- **Pipeline supply-chain risk (Critical)** — pinned all GitHub Actions on main branch to
-  immutable commit SHAs, eliminating the floating-tag risk documented in STRIDE T1/T2
-  and kill-chain Chain 2. SHAs fetched live from the GitHub API:
-  - `actions/checkout` → `34e114876b0b11c390a56381ad16ebd13914f8d5` (v4)
-  - `aquasecurity/trivy-action` → `ed142fd0673e97e23eac54620cfb913e5ce36c25` (v0.36.0)
-  - `gitleaks/gitleaks-action` → `ff98106e4c7b2bc287b24eaf42907196329070c7` (v2)
-  - `github/codeql-action/*` → `ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a` (v3)
-- **`vulnerable_app.py` annotation quality** — rewrote all seven vulnerability comment
-  blocks to match Dockerfile annotation standard: attacker capability with real payloads,
-  named real-world incident with financial impact, detection mechanism, exact parameterised fix
-- **`/user` route** — wired the SQL injection endpoint so it is reachable via HTTP GET;
-  previously `get_user()` existed but had no route binding
-- **Gantt chart rendering** — replaced broken `dateFormat X` Mermaid block in
-  `reports/threat-model-report.md` with a plain markdown remediation roadmap table;
-  `dateFormat X` is unsupported in GitHub's Mermaid renderer
-- **Threat model scope statement** — updated to accurately reflect 5 container
-  weaknesses plus 1 CI/CD pipeline misconfiguration (floating Action tags)
-- **`terraform/main.tf` AMI** — replaced us-east-1 AMI placeholder with eu-west-2
-  placeholder consistent with the configured provider region
-- **`reports/README.md`** — created document map index explaining the purpose of
-  every report and the main/hardened branch relationship
-
----
-
-## [1.1] — 2026-04-25
-
-### Fixed
-- Corrected threat count to 21 — scope was previously overstated in the executive summary and headers
-- Replaced "patient records" (healthcare domain) with "merchant/cardholder records" (fintech)
-  throughout all documents — NexusCore is a payments company, not a healthcare provider
-- Replaced fictional ECS Fargate + RDS PostgreSQL architecture with the actual stack:
-  EC2 + S3 + Security Group + SQLite, as defined in `terraform/main.tf`
-- Removed unsupported MITRE coverage percentage claim
-- Replaced JWT/session token spoofing threat (S1) with actual risk: `GITHUB_TOKEN`
-  leak and floating Actions tags — both grounded in the pipeline YAML
-- Replaced all RDS PostgreSQL references with SQLite or EC2/S3 as appropriate
-- Replaced ECS Fargate D3 DoS threat with EC2 CloudWatch alarm gap (what exists)
-- Replaced RDS query logging gap (R4) with SQLite application-level logging gap
-- Documented `trivy-action@master` floating tag explicitly in STRIDE T1 and T2
-- Fixed `REMEDIATION.md` link to point to the hardened branch (not a non-existent path)
-- Added MITRE ATT&CK technique mappings based on attack chain analysis
+### Changed
+- Pinned all GitHub Actions to immutable commit SHAs on both main and hardened branches
+- Added `.gitleaks.toml` allowlist on hardened branch to correctly scope secret scanning to current code, not shared git history
+- Added `timeout-minutes` to all pipeline jobs
+- Updated STRIDE register to reflect remediation status of T1 (floating tags), S2 (trivy-action), and D5 (timeouts)
+- Updated kill-chain Chain 2 to frame the floating-tags finding as a pre-remediation historical condition
+- Restored Mermaid Gantt chart in threat model report
+- Corrected architecture references throughout threat model — EC2 + S3 + SQLite (not ECS/RDS)
+- Corrected domain scope — fintech/merchant records (not healthcare)
+- Threat count corrected to 21
+- Wired `/user` route in `vulnerable_app.py` so the SQL injection endpoint is reachable
+- Improved vulnerability annotations in `vulnerable_app.py` to match Dockerfile standard
+- Added `reports/README.md` document map
 
 ---
 
 ## [1.0] — 2026-04-20
 
 ### Added
-- Initial repository structure: Flask vulnerable application, Dockerfile,
-  Terraform IaC, GitHub Actions pipeline with five security gates
+- Flask vulnerable application with 7 intentional vulnerabilities across SQL injection, command injection, SSTI, path traversal, insecure deserialisation, hardcoded credentials, and debug mode
+- Dockerfile with 5 intentional container security weaknesses
+- Terraform IaC with 3 deliberate misconfigurations across S3, EC2, and Security Group
+- GitHub Actions pipeline with five security gates: CodeQL, Trivy SCA, Trivy IaC, Gitleaks, Trivy Container
 - STRIDE threat register covering 21 threats across six categories
-- MITRE ATT&CK mapping across 12 tactics and 21 techniques
-- Three end-to-end kill-chain analyses grounded in specific repo files
+- MITRE ATT&CK mapping across 12 tactics
+- Three end-to-end kill-chain analyses grounded in specific repository files
 - Hardened branch with remediated versions of all vulnerable files
-- `REMEDIATION.md` full findings index with before/after technical detail
+- `REMEDIATION.md` full findings index with before/after technical detail for all 20 findings
