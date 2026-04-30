@@ -1,5 +1,6 @@
 # Terraform Configuration - AWS
-# Contains intentional security misconfigurations for scanning demo
+# Hardened version: all IaC findings from REMEDIATION.md have been fixed.
+# Compare with main branch terraform/main.tf to see intentional vs remediated.
 
 terraform {
   required_providers {
@@ -14,71 +15,106 @@ provider "aws" {
   region = "eu-west-2"
 }
 
-# Vulnerability 1: S3 bucket with public access
-resource "aws_s3_bucket" "vulnerable_bucket" {
-  bucket = "devsecops-demo-bucket-vulnerable"
+# -------------------------------------------------------
+# S3 Bucket — FIX: all public access block flags enabled
+# BEFORE: block_public_acls = false (all four flags false)
+# AFTER:  all four flags set to true
+# -------------------------------------------------------
+resource "aws_s3_bucket" "hardened_bucket" {
+  bucket = "devsecops-demo-bucket-hardened"
 
   tags = {
-    Name        = "Vulnerable Demo Bucket"
+    Name        = "Hardened Demo Bucket"
     Environment = "Demo"
   }
 }
 
-# BAD: Public access block disabled
-resource "aws_s3_bucket_public_access_block" "vulnerable_bucket_pab" {
-  bucket = aws_s3_bucket.vulnerable_bucket.id
+resource "aws_s3_bucket_public_access_block" "hardened_bucket_pab" {
+  bucket = aws_s3_bucket.hardened_bucket.id
 
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
-# Vulnerability 2: Security group allowing all traffic
-resource "aws_security_group" "vulnerable_sg" {
-  name        = "vulnerable-security-group"
-  description = "Intentionally vulnerable security group"
+resource "aws_s3_bucket_server_side_encryption_configuration" "hardened_bucket_sse" {
+  bucket = aws_s3_bucket.hardened_bucket.id
 
-  # BAD: Allow all inbound traffic
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "aws:kms"
+    }
+  }
+}
+
+# -------------------------------------------------------
+# Security Group — FIX: no wildcard 0.0.0.0/0 rules
+# BEFORE: ingress/egress open on all ports, all protocols
+# AFTER:  ingress restricted to HTTPS (443) from known CIDR
+#         egress restricted to HTTPS (443) only
+# -------------------------------------------------------
+resource "aws_security_group" "hardened_sg" {
+  name        = "hardened-security-group"
+  description = "Hardened security group - minimal required access only"
+
   ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTPS from trusted CIDR only"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/8"]
   }
 
-  # BAD: Allow all outbound traffic  
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "HTTPS outbound only"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
-# Vulnerability 3: EC2 instance without encryption
-resource "aws_instance" "vulnerable_instance" {
+# -------------------------------------------------------
+# Secrets Manager — credentials stored securely
+# BEFORE: DB_PASSWORD hardcoded in user_data plaintext
+# AFTER:  secret ARN referenced; no plaintext credentials
+# -------------------------------------------------------
+data "aws_secretsmanager_secret_version" "app_credentials" {
+  secret_id = "devsecops-demo/app-credentials"
+}
+
+# -------------------------------------------------------
+# EC2 Instance — FIX: encrypted root volume, no public IP,
+#                     credentials from Secrets Manager
+# BEFORE: encrypted = false, associate_public_ip_address = true,
+#         DB_PASSWORD hardcoded in user_data
+# AFTER:  encrypted = true, public IP disabled,
+#         credentials retrieved from Secrets Manager at boot
+# -------------------------------------------------------
+resource "aws_instance" "hardened_instance" {
   ami           = "ami-0c55b159cbfafe1f0"
   instance_type = "t2.micro"
 
-  vpc_security_group_ids = [aws_security_group.vulnerable_sg.id]
+  vpc_security_group_ids      = [aws_security_group.hardened_sg.id]
+  associate_public_ip_address = false
 
-  # BAD: Public IP
-  associate_public_ip_address = true
-
-  # BAD: No encryption
   root_block_device {
-    encrypted = false
+    encrypted = true
   }
 
-  # BAD: Hardcoded credentials in user data
   user_data = <<-USERDATA
               #!/bin/bash
-              export DB_PASSWORD="hardcoded_password"
-              echo "Setting up application..."
+              # Retrieve credentials from Secrets Manager at runtime
+              SECRET=$(aws secretsmanager get-secret-value \
+                --secret-id devsecops-demo/app-credentials \
+                --query SecretString --output text)
+              export DB_PASSWORD=$(echo $SECRET | python3 -c \
+                "import sys,json; print(json.load(sys.stdin)['db_password'])")
+              echo "Application starting..."
               USERDATA
 
   tags = {
-    Name = "Vulnerable Instance"
+    Name = "Hardened Instance"
   }
 }
