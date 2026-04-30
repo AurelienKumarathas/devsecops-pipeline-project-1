@@ -1,0 +1,15 @@
+# .trivyignore - accepted risk suppressions for demo module
+#
+# The three intentional IaC vulnerabilities (S3 public access,
+# open security group, unencrypted EBS) are ALL fixed in main.tf.
+#
+# The rules below are out-of-scope for this single-resource demo.
+
+# S3 versioning - no long-lived objects in demo bucket
+AVD-AWS-0088
+
+# S3 access logging - requires a separate logging bucket; out of scope
+AVD-AWS-0089
+
+# S3 CMK encryption - using aws:kms default key is acceptable for demo scope
+AVD-AWS-0132
