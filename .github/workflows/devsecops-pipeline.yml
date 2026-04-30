@@ -74,7 +74,9 @@ jobs:
 
   # ==========================================
   # IaC - Infrastructure as Code Scanning
-  # terraform/ on this branch has no misconfigs
+  # terraform/ on this branch has no misconfigs.
+  # trivyignores explicitly passed — file discovery is unreliable
+  # when scan-ref is a subdirectory.
   # ==========================================
   iac-scanning:
     name: IaC - Terraform Security
@@ -97,6 +99,7 @@ jobs:
           output: 'trivy-iac-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
           exit-code: '1'
+          trivyignores: 'terraform/.trivyignore'
 
       - name: Upload IaC scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
@@ -196,4 +199,4 @@ jobs:
           echo "| Secret Detection | ${{ needs.secret-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Container Scan | ${{ needs.container-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Hardened branch: all vulnerabilities remediated. Gitleaks runs against full git history; synthetic credentials in main branch history are allowlisted via .gitleaks.toml \u2014 they are a known test fixture, not a finding. See REMEDIATION.md for full before/after detail." >> $GITHUB_STEP_SUMMARY
+          echo "> Hardened branch: all vulnerabilities remediated. Gitleaks runs against full git history; synthetic credentials in main branch history are allowlisted via .gitleaks.toml — they are a known test fixture, not a finding. See REMEDIATION.md for full before/after detail." >> $GITHUB_STEP_SUMMARY
