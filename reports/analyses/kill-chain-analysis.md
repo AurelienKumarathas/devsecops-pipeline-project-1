@@ -1,6 +1,6 @@
 # Kill-Chain Analysis — NexusCore Technologies
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Classification:** Internal / Confidential  
 **Scope:** Three attack chains modelled against the NexusCore DevSecOps pipeline  
 **Framework:** Unified Kill Chain (UKC) cross-referenced with MITRE ATT&CK  
@@ -78,7 +78,7 @@ Phase 5 — Exfiltration
 
 ### Narrative
 
-A threat actor identifies that the GitHub Actions workflow pins security tool actions to floating version tags (e.g. `aquasecurity/trivy-action@master`) rather than immutable commit SHAs. They compromise the upstream action repository or publish a malicious update, which is automatically consumed on the next pipeline run.
+A threat actor targets the GitHub Actions workflow. Prior to v1.2, all security tool actions were pinned to floating version tags (e.g. `aquasecurity/trivy-action@master`) — mutable references that would automatically consume any upstream commit, including a malicious one. This chain illustrates the full attack path that was possible before SHA pinning was applied, and remains relevant for any fork or earlier version of this repository.
 
 ### Step-by-Step
 
@@ -86,8 +86,10 @@ A threat actor identifies that the GitHub Actions workflow pins security tool ac
 Phase 1 — Reconnaissance
   Action: Attacker inspects .github/workflows/devsecops-pipeline.yml
           (publicly visible on a public repository)
-  Finding: Actions pinned to floating tags — trivy-action@master,
-           gitleaks-action@v2, etc.
+  Finding: Prior to v1.2 (commit 243ca8e), Actions were pinned to floating
+           tags — trivy-action@master, gitleaks-action@v2, codeql-action@v3.
+           Remediated in v1.2: all Actions now pinned to immutable commit SHAs.
+           This phase succeeds against any fork or pre-v1.2 version of this repo.
   Source: .github/workflows/devsecops-pipeline.yml
   Technique: T1592 (Gather Victim Host Information)
 
@@ -95,9 +97,10 @@ Phase 2 — Initial Access via Supply Chain
   Vector A: Attacker publishes CVE-exploiting PyYAML payload via a
             typosquatted package name (e.g. pyyam1 vs pyyaml)
   Vector B: Attacker compromises the aquasecurity/trivy-action repository
-            and pushes a malicious commit to the master branch
+            and pushes a malicious commit to the master branch — consumed
+            automatically when the pipeline runs with a floating @master tag
   Source: requirements.txt (PyYAML 5.4.1 — CVE-2020-14343, CVSS 9.8)
-  Source: .github/workflows/devsecops-pipeline.yml (floating @master tag)
+  Source: .github/workflows/devsecops-pipeline.yml (floating @master tag, pre-v1.2)
   Technique: T1195 (Supply Chain Compromise)
 
 Phase 3 — Execution
@@ -126,7 +129,7 @@ Phase 5 — Defence Evasion
 
 | Control Point | Gap | Remediation |
 |--------------|-----|-------------|
-| Floating Action tags | `@master` tags are mutable | Pin all Actions to immutable commit SHAs: `aquasecurity/trivy-action@a20de5...` |
+| Floating Action tags | Remediated in v1.2 — all Actions pinned to immutable commit SHAs (commit 243ca8e). Residual risk: SHAs become stale over time. | Rotate SHAs quarterly; use Dependabot for automated SHA update PRs |
 | PyYAML CVE | Trivy SCA detects but only warns | Set `exit-code: '1'` on Critical severity to block merges |
 | yaml.load() | Unsafe deserialisation | Replace with `yaml.safe_load()` |
 | No image signing | Built images not verified | Implement cosign image signing in the pipeline |

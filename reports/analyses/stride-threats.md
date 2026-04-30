@@ -1,6 +1,6 @@
 # STRIDE Threat Register — NexusCore Technologies
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Scope:** Flask app (`src/vulnerable_app.py`), Dockerfile, `terraform/main.tf`, GitHub Actions pipeline  
 **Methodology:** STRIDE per component  
 **All threats grounded in confirmed vulnerabilities in this repository.**
@@ -12,7 +12,7 @@
 | ID | Component | Threat | Severity | Mitigation |
 |----|-----------|--------|----------|------------|
 | S1 | GitHub Actions | Attacker with a leaked `GITHUB_TOKEN` (e.g. from a public Actions log) impersonates the CI/CD service to trigger pipeline runs or read repository secrets | High | Restrict `GITHUB_TOKEN` permissions to minimum required per job; rotate on exposure |
-| S2 | GitHub Actions | Attacker spoofs a trusted workflow by forking the repo and crafting a malicious PR that targets an unpinned `aquasecurity/trivy-action@master` action | High | Pin all Actions to immutable commit SHAs, not floating version tags |
+| S2 | GitHub Actions | Attacker spoofs a trusted workflow by targeting an unpinned action — **previously `aquasecurity/trivy-action@master`; remediated in v1.2 by pinning all Actions to immutable commit SHAs. Residual risk: pinned SHAs become stale as upstream releases security patches.** | Low (Residual) | Maintain SHA pinning; use Dependabot for automated SHA update PRs; review quarterly |
 | S3 | AWS IAM | Attacker uses hardcoded `DB_PASSWORD` from `terraform/main.tf` user_data to impersonate the EC2 application service | Critical | Remove all hardcoded credentials; use AWS Secrets Manager or IAM instance profiles |
 | S4 | Docker Registry | Attacker publishes a malicious image update under the mutable `python:3.9` tag, silently replacing the base image on the next build | Critical | Pin base image to an immutable SHA digest (`FROM python:3.9@sha256:...`) |
 | S5 | Flask API | Attacker provides a crafted `API_KEY` matching the hardcoded value in `vulnerable_app.py` to impersonate a trusted internal client | Medium | Remove hardcoded credentials; issue scoped API keys via a secrets manager |
@@ -23,7 +23,7 @@
 
 | ID | Component | Threat | Severity | Mitigation |
 |----|-----------|--------|----------|------------|
-| T1 | CI/CD Pipeline | Attacker with write access modifies `.github/workflows/devsecops-pipeline.yml` to disable security gates or inject a malicious step — **all Actions are currently pinned to floating tags, making this trivially exploitable via an upstream compromise** | Critical | Require PR reviews for workflow changes; use CODEOWNERS; pin Actions to commit SHAs |
+| T1 | CI/CD Pipeline | Attacker with write access modifies `.github/workflows/devsecops-pipeline.yml` to disable security gates or inject a malicious step. **Actions were previously pinned to floating tags (`@master`, `@v2`, `@v3`), making this trivially exploitable via an upstream compromise — remediated in v1.2 by pinning all Actions to immutable commit SHAs. Residual risk: SHAs must be reviewed and rotated periodically as upstream actions release security patches.** | High (Residual) | Require PR reviews for workflow changes; use CODEOWNERS; rotate pinned SHAs quarterly via Dependabot |
 | T2 | Source Code | Attacker injects a malicious commit to `vulnerable_app.py` via a compromised developer account | Critical | Enforce signed commits (GPG); require 2 reviewers on all PRs; enable branch protection |
 | T3 | Terraform IaC | Attacker modifies `terraform/main.tf` to open additional ports or remove the `encrypted = false` marker before `terraform apply` | Critical | IaC changes require a security review gate; use Sentinel/OPA policy-as-code |
 | T4 | S3 Bucket | Attacker overwrites objects in the S3 bucket (public access blocks all disabled in `terraform/main.tf`) after gaining access via the open security group | High | Enable all four `block_public_*` settings; enable S3 Object Lock and versioning |
@@ -65,7 +65,7 @@
 | D2 | Flask API | Long-running SQLite queries injected via `/user` (e.g. recursive CTEs) cause connection blocking and application hang | High | Parameterise queries; set a connection timeout on the SQLite connection |
 | D3 | EC2 Instance | No CloudWatch CPU/memory alarms on the EC2 instance — a fork bomb or resource exhaustion attack consumes host resources with no auto-recovery or alerting | High | Configure CloudWatch alarms for CPU > 80% sustained; use Auto Scaling or a watchdog process |
 | D4 | S3 Bucket | Attacker repeatedly requests large objects from the publicly accessible S3 bucket — cost-based denial of service via AWS egress billing | Medium | Enable S3 request metrics; set billing alerts; restrict public access (see I4) |
-| D5 | GitHub Actions | No `timeout-minutes` on any job in `devsecops-pipeline.yml` — a malicious or hung workflow step consumes Actions minutes indefinitely | Medium | Set `timeout-minutes` on all jobs and individual steps |
+| D5 | GitHub Actions | No `timeout-minutes` on any job in `devsecops-pipeline.yml` — **remediated in v1.3 by adding `timeout-minutes` to all jobs on both branches.** Residual risk: individual steps within jobs still lack per-step timeouts. | Low (Residual) | Add per-step `timeout-minutes` to long-running scan steps; monitor Actions usage minutes |
 
 ---
 

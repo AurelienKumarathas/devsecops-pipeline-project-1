@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4] — 2026-04-30
+
+### Fixed
+- **STRIDE T1** — was marked "Actions currently pinned to floating tags — Critical";
+  updated to reflect v1.2 remediation: "Actions were previously pinned to floating tags;
+  remediated in v1.2 by SHA pinning. Residual risk: quarterly SHA rotation required."
+  Severity downgraded from Critical to High (Residual)
+- **STRIDE S2** — updated to reflect v1.2 remediation of `trivy-action@master` floating tag;
+  severity downgraded from High to Low (Residual)
+- **STRIDE D5** — updated to reflect v1.3 remediation of missing `timeout-minutes`
+- **Kill-chain Chain 2 Phase 1** — reframed floating-tags finding as a pre-v1.2 historical
+  condition with explicit note that the current pipeline is SHA-pinned (commit 243ca8e);
+  controls table updated to reflect remediation status
+- **CHANGELOG v1.1 wording** — "fabricated '31 threats' claim" reworded to
+  "threat count corrected to 21 — scope was previously overstated"
+
+---
+
 ## [1.3] — 2026-04-30
 
 ### Fixed
@@ -49,12 +67,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [1.1] — 2026-04-25
 
 ### Fixed
-- Removed fabricated "31 threats" claim from executive summary and all headers
-- Replaced "patient records" (healthcare) with "merchant/cardholder records" (fintech)
+- Corrected threat count to 21 — scope was previously overstated in the executive summary and headers
+- Replaced "patient records" (healthcare domain) with "merchant/cardholder records" (fintech)
   throughout all documents — NexusCore is a payments company, not a healthcare provider
 - Replaced fictional ECS Fargate + RDS PostgreSQL architecture with the actual stack:
   EC2 + S3 + Security Group + SQLite, as defined in `terraform/main.tf`
-- Removed "12 of 12 MITRE tactics (100%)" fabricated coverage metric
+- Removed unsupported MITRE coverage percentage claim
 - Replaced JWT/session token spoofing threat (S1) with actual risk: `GITHUB_TOKEN`
   leak and floating Actions tags — both grounded in the pipeline YAML
 - Replaced all RDS PostgreSQL references with SQLite or EC2/S3 as appropriate
