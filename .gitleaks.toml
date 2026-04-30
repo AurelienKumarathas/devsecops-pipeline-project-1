@@ -1,0 +1,33 @@
+title = "Gitleaks Configuration — NexusCore DevSecOps Demo"
+
+# ---------------------------------------------------------------------------
+# Allowlist for intentional synthetic credentials
+# ---------------------------------------------------------------------------
+# This repository contains deliberately vulnerable code on the main branch
+# to demonstrate that security tooling fires correctly. Three synthetic
+# credential strings were committed to main as part of that demonstration:
+#
+#   super_secret_password_123  — src/vulnerable_app.py (CWE-798)
+#   sk-1234567890abcdef        — src/vulnerable_app.py (CWE-798)
+#   hardcoded_password         — terraform/main.tf EC2 user_data
+#
+# These values have no real access to any system. Their presence is
+# intentional and documented in:
+#   - reports/analyses/stride-threats.md  (I1, S3)
+#   - reports/analyses/mitre-mapping.md   (technique 11: T1552)
+#   - REMEDIATION.md                       (findings 5 and 14)
+#
+# Git history is shared across branches. Without this allowlist, Gitleaks
+# exits non-zero on the hardened branch because it scans the full history
+# (fetch-depth: 0) and finds these values in past main-branch commits.
+# The allowlist below makes the distinction explicit: the hardened branch
+# code is clean; the historical matches are a known, documented test fixture.
+# ---------------------------------------------------------------------------
+
+[allowlist]
+  description = "Synthetic credentials committed to main branch for security gate demonstration"
+  regexes = [
+    '''super_secret_password_123''',
+    '''sk-1234567890abcdef''',
+    '''hardcoded_password''',
+  ]
