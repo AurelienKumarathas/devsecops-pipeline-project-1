@@ -26,11 +26,11 @@
 | 13 | `terraform/main.tf` | `associate_public_ip_address = true` | High | Moved EC2 to private subnet behind ALB |
 | 14 | `terraform/main.tf` | Hardcoded `DB_PASSWORD` in EC2 `user_data` | Critical | Replaced with `aws_secretsmanager_secret_version` data source |
 | 15 | `Dockerfile` | No `USER` instruction — runs as root | Critical | `RUN useradd -m appuser && USER appuser` |
-| 16 | `Dockerfile` | Unpinned base image (`python:3.9`) | High | Pinned to `python:3.9@sha256:<digest>` |
-| 17 | `Dockerfile` | Unnecessary packages (curl, wget, vim, net-tools) | High | Removed all; switched to slim base |
+| 16 | `Dockerfile` | Unpinned base image (`python:3.9`) | High | Pinned to `python:3.9-slim@sha256:<verified digest>` — also switches to slim base, eliminating ~3,900 transitive OS-level CVEs |
+| 17 | `Dockerfile` | Unnecessary packages (curl, wget, vim, net-tools) | High | Removed all; `python:3.9-slim` base no longer ships them |
 | 18 | `Dockerfile` | No `HEALTHCHECK` instruction | Medium | Added `HEALTHCHECK` with appropriate interval and threshold |
 | 19 | `Dockerfile` | Shell-form `CMD` — SIGTERM not forwarded | Low | Exec-form `CMD ["gunicorn", ...]` |
-| 20 | `.github/workflows/` | Actions pinned to floating tags | High | All Actions pinned to immutable commit SHAs |
+| 20 | `.github/workflows/` | Actions pinned to floating tags — remediated in v1.2 | High → Residual: Low | All Actions pinned to immutable commit SHAs; quarterly SHA rotation recommended |
 
 ---
 
