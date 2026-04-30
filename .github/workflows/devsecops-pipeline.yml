@@ -41,7 +41,6 @@ jobs:
 
   # ==========================================
   # SCA - Software Composition Analysis
-  # Scans requirements-hardened.txt (PyYAML 6.0.2, Flask 3.0.3)
   # ==========================================
   sca-trivy:
     name: SCA - Dependency Scanning
@@ -74,9 +73,6 @@ jobs:
 
   # ==========================================
   # IaC - Infrastructure as Code Scanning
-  # terraform/ on this branch has no misconfigs.
-  # trivyignores explicitly passed — file discovery is unreliable
-  # when scan-ref is a subdirectory.
   # ==========================================
   iac-scanning:
     name: IaC - Terraform Security
@@ -89,6 +85,16 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Show IaC findings in log (table format, never fails)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: 'config'
+          scan-ref: 'terraform/'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+          trivyignores: 'terraform/.trivyignore'
 
       - name: Run Trivy IaC scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master (v0.36.0)
@@ -110,8 +116,6 @@ jobs:
 
   # ==========================================
   # Secret Detection
-  # .gitleaks.toml allowlists known fake credentials in git history
-  # --no-git filesystem scan checks current working tree
   # ==========================================
   secret-scanning:
     name: Secret Detection - Gitleaks
@@ -141,7 +145,6 @@ jobs:
 
   # ==========================================
   # Container Security
-  # Builds Dockerfile.hardened (non-root, pinned SHA digest)
   # ==========================================
   container-scanning:
     name: Container Security - Image Scan
@@ -199,4 +202,4 @@ jobs:
           echo "| Secret Detection | ${{ needs.secret-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Container Scan | ${{ needs.container-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Hardened branch: all vulnerabilities remediated. Gitleaks runs against full git history; synthetic credentials in main branch history are allowlisted via .gitleaks.toml — they are a known test fixture, not a finding. See REMEDIATION.md for full before/after detail." >> $GITHUB_STEP_SUMMARY
+          echo "> Hardened branch: all vulnerabilities remediated. See REMEDIATION.md for full before/after detail." >> $GITHUB_STEP_SUMMARY
