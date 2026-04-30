@@ -62,6 +62,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-sca-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
 
       - name: Upload Trivy SCA results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
@@ -93,6 +94,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-iac-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
 
       - name: Upload IaC scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
@@ -122,6 +124,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Run Gitleaks filesystem scan
+        run: |
+          docker run --rm -v "$(pwd):/path" \
+            ghcr.io/gitleaks/gitleaks:latest \
+            detect --source /path --no-git --redact \
+            --exit-code 1
+
   # ==========================================
   # Container Security
   # ==========================================
@@ -130,6 +139,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [sast-codeql, sca-trivy]
+    if: always()
     permissions:
       contents: read
       security-events: write
@@ -148,6 +158,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-container-results.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Upload container scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
@@ -179,4 +190,4 @@ jobs:
           echo "| Secret Detection | ${{ needs.secret-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Container Scan | ${{ needs.container-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Pipeline failures on main are intentional — this branch contains deliberately vulnerable code to validate each security gate. See REMEDIATION.md for the full findings index and the hardened branch for remediated versions of every file." >> $GITHUB_STEP_SUMMARY
+          echo "> Pipeline failures on main are intentional \u2014 this branch contains deliberately vulnerable code to validate each security gate. See REMEDIATION.md for the full findings index and the hardened branch for remediated versions of every file." >> $GITHUB_STEP_SUMMARY
