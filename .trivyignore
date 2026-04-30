@@ -1,0 +1,16 @@
+# .trivyignore - Hardened branch accepted risk suppressions
+#
+# The three intentional IaC vulnerabilities from REMEDIATION.md
+# (S3 public access, open security group, unencrypted EBS) are ALL fixed
+# in terraform/main.tf on this branch.
+#
+# The rules below are suppressed as out-of-scope for this single-resource
+# demo module. They would be addressed in a production module.
+
+# S3 access logging - requires a separate logging bucket; out of scope
+# for this demo. In production: aws_s3_bucket_logging resource added.
+AVD-AWS-0089
+
+# S3 versioning - not required for a demo compute bucket with no
+# long-lived objects. In production: aws_s3_bucket_versioning enabled.
+AVD-AWS-0088

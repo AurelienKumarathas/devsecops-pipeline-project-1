@@ -1,6 +1,6 @@
 # Terraform Configuration - AWS
-# Hardened version: all IaC findings from REMEDIATION.md have been fixed.
-# Compare with main branch terraform/main.tf to see intentional vs remediated.
+# Hardened version: all three IaC findings from REMEDIATION.md fixed.
+# Compare with main branch terraform/main.tf to see before/after.
 
 terraform {
   required_providers {
@@ -16,9 +16,10 @@ provider "aws" {
 }
 
 # -------------------------------------------------------
-# S3 Bucket — FIX: all public access block flags enabled
+# S3 Bucket
+# FIX 1: All public access block flags set to true
+# FIX:    KMS server-side encryption enabled
 # BEFORE: block_public_acls = false (all four flags false)
-# AFTER:  all four flags set to true
 # -------------------------------------------------------
 resource "aws_s3_bucket" "hardened_bucket" {
   bucket = "devsecops-demo-bucket-hardened"
@@ -49,17 +50,18 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "hardened_bucket_s
 }
 
 # -------------------------------------------------------
-# Security Group — FIX: no wildcard 0.0.0.0/0 rules
+# Security Group
+# FIX 2: No wildcard 0.0.0.0/0 rules on any port
 # BEFORE: ingress/egress open on all ports, all protocols
-# AFTER:  ingress restricted to HTTPS (443) from known CIDR
-#         egress restricted to HTTPS (443) only
+# AFTER:  ingress restricted to HTTPS (443) from 10.0.0.0/8
+#         egress restricted to HTTPS (443) to 10.0.0.0/8
 # -------------------------------------------------------
 resource "aws_security_group" "hardened_sg" {
   name        = "hardened-security-group"
   description = "Hardened security group - minimal required access only"
 
   ingress {
-    description = "HTTPS from trusted CIDR only"
+    description = "HTTPS from private network only"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -67,30 +69,19 @@ resource "aws_security_group" "hardened_sg" {
   }
 
   egress {
-    description = "HTTPS outbound only"
+    description = "HTTPS to private network only"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["10.0.0.0/8"]
   }
 }
 
 # -------------------------------------------------------
-# Secrets Manager — credentials stored securely
-# BEFORE: DB_PASSWORD hardcoded in user_data plaintext
-# AFTER:  secret ARN referenced; no plaintext credentials
-# -------------------------------------------------------
-data "aws_secretsmanager_secret_version" "app_credentials" {
-  secret_id = "devsecops-demo/app-credentials"
-}
-
-# -------------------------------------------------------
-# EC2 Instance — FIX: encrypted root volume, no public IP,
-#                     credentials from Secrets Manager
-# BEFORE: encrypted = false, associate_public_ip_address = true,
-#         DB_PASSWORD hardcoded in user_data
-# AFTER:  encrypted = true, public IP disabled,
-#         credentials retrieved from Secrets Manager at boot
+# EC2 Instance
+# FIX 3: Encrypted root volume, no public IP, IMDSv2,
+#         credentials from Secrets Manager
+# BEFORE: encrypted = false, public IP, hardcoded DB_PASSWORD
 # -------------------------------------------------------
 resource "aws_instance" "hardened_instance" {
   ami           = "ami-0c55b159cbfafe1f0"
@@ -98,14 +89,23 @@ resource "aws_instance" "hardened_instance" {
 
   vpc_security_group_ids      = [aws_security_group.hardened_sg.id]
   associate_public_ip_address = false
+  monitoring                  = true
+
+  # Enforce IMDSv2 - prevents SSRF-based metadata credential theft
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
 
   root_block_device {
     encrypted = true
   }
 
+  # Credentials retrieved from Secrets Manager at runtime
+  # No plaintext secrets in user_data
   user_data = <<-USERDATA
               #!/bin/bash
-              # Retrieve credentials from Secrets Manager at runtime
               SECRET=$(aws secretsmanager get-secret-value \
                 --secret-id devsecops-demo/app-credentials \
                 --query SecretString --output text)
