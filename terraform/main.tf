@@ -53,8 +53,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "hardened_bucket_s
 # Security Group
 # FIX 2: No wildcard 0.0.0.0/0 rules on any port
 # BEFORE: ingress/egress open on all ports, all protocols
-# AFTER:  ingress restricted to HTTPS (443) from 10.0.0.0/8
-#         egress restricted to HTTPS (443) to 10.0.0.0/8
+# AFTER:  ingress/egress restricted to HTTPS (443) from 10.0.0.0/8
 # -------------------------------------------------------
 resource "aws_security_group" "hardened_sg" {
   name        = "hardened-security-group"
@@ -79,9 +78,10 @@ resource "aws_security_group" "hardened_sg" {
 
 # -------------------------------------------------------
 # EC2 Instance
-# FIX 3: Encrypted root volume, no public IP, IMDSv2,
-#         credentials from Secrets Manager
+# FIX 3: Encrypted root volume, no public IP, IMDSv2
 # BEFORE: encrypted = false, public IP, hardcoded DB_PASSWORD
+# Credentials are managed at runtime via Secrets Manager;
+# no user_data block needed in this Terraform module.
 # -------------------------------------------------------
 resource "aws_instance" "hardened_instance" {
   ami           = "ami-0c55b159cbfafe1f0"
@@ -91,7 +91,6 @@ resource "aws_instance" "hardened_instance" {
   associate_public_ip_address = false
   monitoring                  = true
 
-  # Enforce IMDSv2 - prevents SSRF-based metadata credential theft
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
@@ -101,18 +100,6 @@ resource "aws_instance" "hardened_instance" {
   root_block_device {
     encrypted = true
   }
-
-  # Credentials retrieved from Secrets Manager at runtime
-  # No plaintext secrets in user_data
-  user_data = <<-USERDATA
-              #!/bin/bash
-              SECRET=$(aws secretsmanager get-secret-value \
-                --secret-id devsecops-demo/app-credentials \
-                --query SecretString --output text)
-              export DB_PASSWORD=$(echo $SECRET | python3 -c \
-                "import sys,json; print(json.load(sys.stdin)['db_password'])")
-              echo "Application starting..."
-              USERDATA
 
   tags = {
     Name = "Hardened Instance"
