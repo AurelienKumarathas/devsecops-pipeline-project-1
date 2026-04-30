@@ -12,6 +12,7 @@ from flask import Flask, request, abort
 import os
 import sqlite3
 import yaml
+import html
 
 app = Flask(__name__)
 
@@ -46,18 +47,19 @@ def get_user(username):
 # strict input validation against an allowlist of IP addresses.
 
 
-# FIX 4: SSTI remediation — return plain text, not a rendered template.
+# FIX 4: SSTI and XSS remediation.
 # The original used render_template_string with user input interpolated directly
-# into the template string. An attacker could pass name={{ config }} to leak
-# the Flask config object, or name={{ ''.__class__.__mro__[1].__subclasses__() }}
-# for full RCE. The fix returns a plain escaped string with no template rendering.
+# into the template string, enabling SSTI. The initial fix returned the name in
+# a plain text f-string, which CodeQL correctly flagged as reflected XSS — user
+# input was still echoed into the response without explicit escaping.
+# Final fix: html.escape() sanitises all HTML special characters before the
+# value is placed in the response body, neutralising both SSTI and XSS vectors.
 @app.route('/greet')
 def greet():
-    """SSTI remediated — user input is never passed into a template engine."""
+    """SSTI and XSS remediated — user input is HTML-escaped before output."""
     name = request.args.get('name', 'Guest')
-    # Input is returned as plain text; Flask escapes it automatically in responses.
-    # If HTML rendering is required, use a static template with {{ name|e }} escaping.
-    return f"Hello {name}!", 200, {'Content-Type': 'text/plain; charset=utf-8'}
+    safe_name = html.escape(name)
+    return f"Hello {safe_name}!", 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
 
 # FIX 5: yaml.safe_load instead of yaml.load.
@@ -65,33 +67,41 @@ def greet():
 # objects via YAML tags like !!python/object/apply:os.system ['rm -rf /']
 # yaml.safe_load only deserialises standard YAML scalars, lists, and dicts —
 # it raises an exception if it encounters any object/apply tag.
+# The response no longer reflects user-controlled data — a fixed status string
+# is returned instead, eliminating the reflected XSS CodeQL flagged previously.
 @app.route('/load_config')
 def load_config():
-    """Insecure deserialization remediated via yaml.safe_load."""
+    """Insecure deserialization remediated via yaml.safe_load. Response is a fixed string."""
     config_data = request.args.get('config', '{}')
     try:
-        config = yaml.safe_load(config_data)
+        yaml.safe_load(config_data)
     except yaml.YAMLError:
         abort(400)
-    return str(config)
+    return "Config loaded successfully.", 200
 
 
-# FIX 6: Path traversal remediated with os.path.abspath allowlist check.
+# FIX 6: Path traversal remediated with a safe join and realpath allowlist check.
 # The original did open(f"/app/files/{filename}") with no validation, allowing
-# filename = "../../etc/passwd" to read arbitrary files. The fix resolves the
-# absolute path and asserts it starts with the allowed base directory.
-# Any attempt to escape the directory raises a 400 before the file is opened.
-BASE_FILES_DIR = os.path.abspath("/app/files")
+# filename = "../../etc/passwd" to read arbitrary files.
+# Fix: the safe base directory is joined with only the basename of the supplied
+# filename (stripping any directory components the user may have included),
+# then os.path.realpath resolves symlinks before the allowlist check.
+# CodeQL is satisfied because user input is never used as the direct path —
+# only os.path.basename(filename) reaches the filesystem call.
+BASE_FILES_DIR = os.path.realpath("/app/files")
 
 @app.route('/read_file')
 def read_file():
-    """Path traversal remediated via realpath allowlist check."""
+    """Path traversal remediated via basename stripping and realpath allowlist check."""
     filename = request.args.get('file', 'default.txt')
-    requested_path = os.path.realpath(os.path.join(BASE_FILES_DIR, filename))
-    if not requested_path.startswith(BASE_FILES_DIR + os.sep):
+    # os.path.basename strips any directory traversal sequences (../../)
+    # before the path is constructed, so only a plain filename reaches the join.
+    safe_filename = os.path.basename(filename)
+    resolved_path = os.path.realpath(os.path.join(BASE_FILES_DIR, safe_filename))
+    if not resolved_path.startswith(BASE_FILES_DIR + os.sep):
         abort(400)
     try:
-        with open(requested_path, 'r') as f:
+        with open(resolved_path, 'r') as f:
             return f.read()
     except FileNotFoundError:
         abort(404)
