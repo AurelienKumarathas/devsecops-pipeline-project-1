@@ -13,7 +13,7 @@ NexusCore Technologies is a fictional Series A fintech startup processing card p
 
 **Scope of this model:**
 - Flask application (`src/vulnerable_app.py`) — 7 intentional vulnerabilities
-- GitHub Actions pipeline (`.github/workflows/devsecops-pipeline.yml`) — 5 security gates
+- GitHub Actions pipeline (`.github/workflows/devsecops-pipeline.yml`) — 5 security gates; 1 deliberate misconfiguration (floating Action tags)
 - Terraform IaC (`terraform/main.tf`) — EC2, S3, Security Group with 3 deliberate misconfigurations
 - Docker container (`Dockerfile`) — 5 intentional container security weaknesses
 - Python dependencies (`requirements.txt`) — known CVEs in PyYAML 5.4.1 and Flask 2.0.1
@@ -86,34 +86,22 @@ All threats in this model are grounded in the following confirmed vulnerabilitie
 
 ## Remediation Roadmap
 
-All timelines are relative to project kick-off. The numeric axis below represents sprint number (0 = kick-off).
-
-```mermaid
-gantt
-    title NexusCore Remediation Roadmap
-    dateFormat  X
-    axisFormat  Sprint %s
-
-    section Pre-Launch (Sprint 1)
-    Rotate all leaked credentials            :crit, done, s1a, 0, 1
-    Fix SQL injection (parameterised queries) :crit, done, s1b, 0, 1
-    Fix command injection (remove shell=True) :crit, done, s1c, 0, 1
-    Pin Docker base image to digest           :done, s1d, 0, 1
-    Add non-root USER to Dockerfile           :done, s1e, 0, 1
-
-    section 30-Day (Sprint 2)
-    Upgrade PyYAML (CVE-2020-14343)           :active, s2a, 1, 2
-    Restrict S3 bucket public access          :active, s2b, 1, 2
-    Enable EC2 root volume encryption         :s2c, 1, 2
-    Tighten security group egress rules       :s2d, 1, 2
-    Pin GitHub Actions to commit SHAs         :s2e, 1, 2
-
-    section 90-Day (Sprint 3)
-    Implement application-level audit logging  :s3a, 2, 3
-    Enable MFA on all AWS IAM accounts         :s3b, 2, 3
-    Move secrets to AWS Secrets Manager        :s3c, 2, 3
-    Add HEALTHCHECK to Dockerfile              :s3d, 2, 3
-```
+| Priority | Finding | Sprint |
+|----------|---------|--------|
+| 🔴 Critical | Rotate all leaked credentials | Sprint 1 |
+| 🔴 Critical | Fix SQL injection — parameterised queries | Sprint 1 |
+| 🔴 Critical | Fix command injection — remove `shell=True` | Sprint 1 |
+| 🔴 Critical | Pin Docker base image to SHA digest | Sprint 1 |
+| 🔴 Critical | Add non-root `USER` to Dockerfile | Sprint 1 |
+| 🟠 High | Upgrade PyYAML — CVE-2020-14343 | Sprint 2 |
+| 🟠 High | Restrict S3 bucket public access | Sprint 2 |
+| 🟠 High | Enable EC2 root volume encryption | Sprint 2 |
+| 🟠 High | Tighten security group egress rules | Sprint 2 |
+| 🟠 High | Pin GitHub Actions to commit SHAs | Sprint 2 |
+| 🟡 Medium | Implement application-level audit logging | Sprint 3 |
+| 🟡 Medium | Enable MFA on all AWS IAM accounts | Sprint 3 |
+| 🟡 Medium | Move secrets to AWS Secrets Manager | Sprint 3 |
+| 🟡 Medium | Add `HEALTHCHECK` to Dockerfile | Sprint 3 |
 
 ---
 
@@ -135,5 +123,6 @@ See [analyses/stride-threats.md](analyses/stride-threats.md) for the complete pe
 |----------|-------------|
 | [analyses/mitre-mapping.md](analyses/mitre-mapping.md) | MITRE ATT&CK technique mapping |
 | [analyses/stride-threats.md](analyses/stride-threats.md) | STRIDE threat register |
-| [CHANGELOG.md](../CHANGELOG.md) | Version history |
-| [hardened branch — REMEDIATION.md](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/blob/hardened/REMEDIATION.md) | Technical before/after remediation detail (hardened branch) |
+| [analyses/kill-chain-analysis.md](analyses/kill-chain-analysis.md) | End-to-end attack chain analysis |
+| [CHANGELOG.md](../../CHANGELOG.md) | Version history |
+| [REMEDIATION.md](../../REMEDIATION.md) | Full findings index with hardened branch cross-reference |
