@@ -34,9 +34,9 @@ app = Flask(__name__)
 # Real-world parallel: Uber (2022) — hardcoded credentials in a private
 # GitHub repo led to a full AWS, GCP, and internal systems compromise.
 #
-# Detection: Gitleaks scans the full git history on every push. It identifies
-# both values via built-in regex rules: `generic-api-key` (sk-...) and
-# `hashicorp-tf-password` patterns.
+# Detection: Gitleaks scans the full git history and working tree on every
+# push. API_KEY uses GitHub PAT format (ghp_ prefix) and is detected via
+# the github-pat rule. DATABASE_PASSWORD is detected via generic-api-key.
 #
 # Fix: Remove all hardcoded values. Source credentials at runtime:
 #   DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD")
@@ -44,7 +44,7 @@ app = Flask(__name__)
 # Store secrets in AWS Secrets Manager and inject via IAM instance profile.
 # ---------------------------------------------------------------------------
 DATABASE_PASSWORD = "super_secret_password_123"
-API_KEY = "sk-proj-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+API_KEY = "ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456789"
 
 
 # ---------------------------------------------------------------------------

@@ -80,12 +80,11 @@ resource "aws_security_group" "vulnerable_sg" {
 # by any process running on the instance. An SSRF vulnerability in the
 # application (e.g. via the /ping endpoint) can retrieve user_data via
 # http://169.254.169.254/latest/user-data, exposing the password.
-# Gitleaks detects the hardcoded value in source via the hashicorp-tf-password rule.
 #
-# Hardcoded AWS access key: credentials embedded in IaC source are exposed
-# to anyone with repository read access and persist in git history
-# indefinitely. Gitleaks detects this via the aws-access-key-id rule.
-# AKIAIOSFODNN7EXAMPLE is AWS's own documented example key (not real/active).
+# Hardcoded GITHUB_TOKEN in user_data: a GitHub PAT embedded in IaC source
+# is exposed to anyone with repository read access and persists in git history
+# indefinitely even after removal. Gitleaks detects this via the github-pat
+# rule (ghp_ prefix pattern). Token is intentionally fake — demo context only.
 #
 # Note: ami-0b0b0b0b0b0b0b0b0 is a placeholder AMI ID for the eu-west-2
 # region consistent with the configured provider. This configuration is
@@ -105,12 +104,11 @@ resource "aws_instance" "vulnerable_instance" {
   }
 
   # BAD: hardcoded credentials in user_data — readable via instance metadata endpoint
-  # AWS access key hardcoded in IaC source — detected by Gitleaks aws-access-key-id rule
+  # GITHUB_TOKEN uses ghp_ prefix format — detected by Gitleaks github-pat rule
   user_data = <<-USERDATA
               #!/bin/bash
               export DB_PASSWORD="hardcoded_password"
-              export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"
-              export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+              export GITHUB_TOKEN="ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456789"
               echo "Setting up application..."
               USERDATA
 
