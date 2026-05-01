@@ -127,13 +127,6 @@ jobs:
           GITLEAKS_REPORT_FORMAT: sarif
           GITLEAKS_REPORT_PATH: gitleaks-results.sarif
 
-      - name: Run Gitleaks filesystem scan
-        run: |
-          docker run --rm -v "$(pwd):/path" \
-            ghcr.io/gitleaks/gitleaks:latest \
-            detect --source /path --no-git --redact \
-            --exit-code 1
-
       - name: Upload Gitleaks results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
         if: always()
