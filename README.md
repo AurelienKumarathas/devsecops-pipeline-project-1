@@ -1,5 +1,7 @@
 # 🔐 DevSecOps Pipeline — NexusCore Technologies
 
+> **TL;DR** — A production-style DevSecOps pipeline embedding automated security scanning at every commit for a fictional fintech startup. Five tools (CodeQL, Trivy, Gitleaks, Trivy IaC, Trivy Container) gate every push via GitHub Actions. The `main` branch is **intentionally vulnerable** — each gate fails because it detects what it is supposed to detect. The `hardened` branch is **fully remediated** — all five gates pass. Together they demonstrate the complete security engineering lifecycle: detect, report, fix.
+
 | Branch | Pipeline Status |
 |--------|-----------------|
 | `main` (intentionally vulnerable) | ![main](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/actions/workflows/devsecops-pipeline.yml/badge.svg?branch=main) |
@@ -108,6 +110,7 @@ graph LR
     H --> I[AWS Deployment]
     C --> J[SARIF Upload]
     D --> J
+    E --> J
     F --> J
     H --> J
     J --> K[GitHub Security Tab]
@@ -147,9 +150,9 @@ Each vulnerability is chosen to exercise a specific security gate. The scanner f
 
 ## 🏗️ Terraform Note
 
-The `terraform/main.tf` in this repo is an **intentionally minimal demo** containing three deliberate misconfigurations, included solely to give the IaC scanning stage something to find. It is not a production Terraform module.
+The `terraform/main.tf` in this repo is **intentionally minimal** — three deliberate misconfigurations included solely to give the IaC scanning stage something to find and validate against. This is a scoping decision, not a gap: a full production Terraform module is out of scope for a pipeline demo project.
 
-For a complete, production-grade AWS security architecture built with Terraform — including VPC design, IAM least-privilege, encrypted S3, CloudTrail, GuardDuty, and full Checkov/tfsec scanning — see the dedicated project:
+For a complete, production-grade AWS security architecture built with Terraform — including VPC design, IAM least-privilege, encrypted S3, CloudTrail, GuardDuty, and full Checkov/tfsec scanning — that work lives in a dedicated project:
 
 **[→ Terraform AWS Security Audit (QuantumTrade)](https://github.com/AurelienKumarathas/terraform-aws-security-audit)**
 
