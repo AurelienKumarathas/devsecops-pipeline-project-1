@@ -70,6 +70,7 @@ resource "aws_security_group" "vulnerable_sg" {
 #
 # associate_public_ip_address = true: instance is directly reachable from
 # the internet without a NAT gateway or load balancer in front of it.
+# Risk: any port bound to 0.0.0.0 is internet-exposed with no ingress filter.
 #
 # encrypted = false on root_block_device: an EBS snapshot or physical
 # media access exposes the full OS disk including any secrets written to
@@ -80,6 +81,11 @@ resource "aws_security_group" "vulnerable_sg" {
 # application (e.g. via the /ping endpoint) can retrieve user_data via
 # http://169.254.169.254/latest/user-data, exposing the password.
 # Gitleaks detects the hardcoded value in source via the hashicorp-tf-password rule.
+#
+# Hardcoded AWS access key: credentials embedded in IaC source are exposed
+# to anyone with repository read access and persist in git history
+# indefinitely. Gitleaks detects this via the aws-access-key-id rule.
+# AKIAIOSFODNN7EXAMPLE is AWS's own documented example key (not real/active).
 #
 # Note: ami-0b0b0b0b0b0b0b0b0 is a placeholder AMI ID for the eu-west-2
 # region consistent with the configured provider. This configuration is
@@ -98,10 +104,13 @@ resource "aws_instance" "vulnerable_instance" {
     encrypted = false
   }
 
-  # BAD: hardcoded password in user_data — readable via instance metadata endpoint
+  # BAD: hardcoded credentials in user_data — readable via instance metadata endpoint
+  # AWS access key hardcoded in IaC source — detected by Gitleaks aws-access-key-id rule
   user_data = <<-USERDATA
               #!/bin/bash
               export DB_PASSWORD="hardcoded_password"
+              export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"
+              export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
               echo "Setting up application..."
               USERDATA
 

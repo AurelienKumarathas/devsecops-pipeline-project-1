@@ -44,7 +44,7 @@ app = Flask(__name__)
 # Store secrets in AWS Secrets Manager and inject via IAM instance profile.
 # ---------------------------------------------------------------------------
 DATABASE_PASSWORD = "super_secret_password_123"
-API_KEY = "sk-1234567890abcdef"
+API_KEY = "sk-proj-a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 
 
 # ---------------------------------------------------------------------------
