@@ -16,17 +16,29 @@ RUN groupadd --gid 1001 appgroup && \
     useradd --uid 1001 --gid appgroup --shell /bin/sh --create-home appuser
 
 # FIXED 3: Minimal runtime dependencies only.
-# curl, wget, vim, and net-tools removed - none are required at runtime.
-# Only libsqlite3-0 is retained as a genuine application dependency.
-# python:3.9-slim base ships without the unnecessary packages.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsqlite3-0 \
+# curl, wget, vim, and net-tools removed - none are required at runtime
+# except curl which is retained solely for the HEALTHCHECK probe.
+# apt-get upgrade -y pulls patched versions of glibc and openssl from
+# Debian repos, remediating CVE-2026-0861 (glibc) and CVE-2025-15467,
+# CVE-2026-31789, CVE-2025-69419/69421, CVE-2026-28387/28388/28389/28390
+# (openssl). All had Status: fixed with available upstream patches.
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        libsqlite3-0 \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY requirements-hardened.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Upgrade wheel and setuptools to patch Python-layer CVEs:
+# - CVE-2026-24049: wheel 0.45.1 -> 0.46.2 (standalone + setuptools vendored)
+# - CVE-2026-23949: setuptools/_vendor/jaraco.context 5.3.0 -> 6.1.0
+#   (resolved by upgrading setuptools to a version that vendors the fix)
+RUN pip install --no-cache-dir --upgrade wheel setuptools
 
 COPY src/remediated_app.py ./src/
 
