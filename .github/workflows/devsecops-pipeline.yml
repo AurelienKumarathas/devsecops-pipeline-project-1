@@ -120,12 +120,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks (git history scan)
+      - name: Run Gitleaks (full git history scan)
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_REPORT_FORMAT: sarif
           GITLEAKS_REPORT_PATH: gitleaks-results.sarif
+          GITLEAKS_LOG_OPTS: "--all"
+
+      - name: Ensure SARIF file exists for upload
+        if: always()
+        run: |
+          if [ ! -f gitleaks-results.sarif ]; then
+            echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"Gitleaks","version":"8.0.0","rules":[]}},"results":[]}]}' > gitleaks-results.sarif
+          fi
 
       - name: Upload Gitleaks results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
