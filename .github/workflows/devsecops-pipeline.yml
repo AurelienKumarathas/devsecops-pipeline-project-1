@@ -120,12 +120,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks (full git history scan)
-        # Using direct docker invocation rather than gitleaks-action because
-        # gitleaks-action v2 runs in protect mode on push events and ignores
-        # GITLEAKS_LOG_OPTS, scanning only the push range. Direct docker run
-        # with --log-opts="--all" scans the complete git history so intentional
-        # secrets committed to main are reliably detected and surfaced.
+      - name: Run Gitleaks — filesystem scan (working tree)
+        # Scans all files present in the working tree at HEAD.
+        # This is the primary pass: catches secrets in currently committed files
+        # such as hardcoded AWS keys in terraform/main.tf and API keys in src/.
+        # --no-git disables git-log walking so it scans files directly.
+        run: |
+          docker run --rm \
+            -v "$(pwd):/path" \
+            ghcr.io/gitleaks/gitleaks:latest \
+            detect \
+            --source /path \
+            --no-git \
+            --report-format sarif \
+            --report-path /path/gitleaks-fs.sarif \
+            --redact \
+            --exit-code 1 || true
+
+      - name: Run Gitleaks — git history scan (all commits)
+        # Second pass: walks the full commit graph to catch secrets that were
+        # introduced in earlier commits but may have since been removed from HEAD.
+        # Complements the filesystem scan for complete historical coverage.
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
@@ -134,16 +149,32 @@ jobs:
             --source /path \
             --log-opts="--all" \
             --report-format sarif \
-            --report-path /path/gitleaks-results.sarif \
+            --report-path /path/gitleaks-history.sarif \
             --redact \
             --exit-code 1 || true
 
-      - name: Ensure SARIF file exists for upload
+      - name: Merge SARIF outputs into single file for upload
         if: always()
         run: |
-          if [ ! -f gitleaks-results.sarif ]; then
-            echo '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"Gitleaks","version":"8.0.0","rules":[]}},"results":[]}]}' > gitleaks-results.sarif
-          fi
+          # Merge results arrays from both SARIF files.
+          # Falls back to an empty-results SARIF if either file is missing.
+          EMPTY='{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"Gitleaks","version":"8.0.0","rules":[]}},"results":[]}]}'
+
+          FS_SARIF=$(cat gitleaks-fs.sarif 2>/dev/null || echo "$EMPTY")
+          HIST_SARIF=$(cat gitleaks-history.sarif 2>/dev/null || echo "$EMPTY")
+
+          # Combine the results arrays from both runs into a single SARIF file.
+          # jq deduplicates by fingerprint so the same secret found in both
+          # passes appears only once in the Security tab.
+          echo "$FS_SARIF" | jq \
+            --argjson hist "$HIST_SARIF" \
+            '.runs[0].results = (
+              (.runs[0].results + $hist.runs[0].results)
+              | unique_by(.fingerprints["matchSHA/v1"] // .message.text)
+            )' > gitleaks-results.sarif
+
+          FINDING_COUNT=$(jq '.runs[0].results | length' gitleaks-results.sarif)
+          echo "Gitleaks findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Gitleaks results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
@@ -251,4 +282,4 @@ jobs:
           echo "| Secret Detection | ${{ needs.secret-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Container Scan | ${{ needs.container-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Pipeline failures on main are intentional \u2014 this branch contains deliberately vulnerable code to validate each security gate. See REMEDIATION.md for the full findings index and the hardened branch for remediated versions of every file." >> $GITHUB_STEP_SUMMARY
+          echo "> Pipeline failures on main are intentional — this branch contains deliberately vulnerable code to validate each security gate. See REMEDIATION.md for the full findings index and the hardened branch for remediated versions of every file." >> $GITHUB_STEP_SUMMARY
