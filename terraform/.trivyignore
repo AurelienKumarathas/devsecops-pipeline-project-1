@@ -11,7 +11,7 @@
 AVD-AWS-0087
 
 # S3 versioning - no long-lived objects in demo bucket
-AVD-AWS-0088
+AVD-AWS-0090
 
 # S3 access logging - requires a separate logging bucket; out of scope
 AVD-AWS-0089
