@@ -121,12 +121,22 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks (full git history scan)
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_REPORT_FORMAT: sarif
-          GITLEAKS_REPORT_PATH: gitleaks-results.sarif
-          GITLEAKS_LOG_OPTS: "--all"
+        # Using direct docker invocation rather than gitleaks-action because
+        # gitleaks-action v2 runs in protect mode on push events and ignores
+        # GITLEAKS_LOG_OPTS, scanning only the push range. Direct docker run
+        # with --log-opts="--all" scans the complete git history so intentional
+        # secrets committed to main are reliably detected and surfaced.
+        run: |
+          docker run --rm \
+            -v "$(pwd):/path" \
+            ghcr.io/gitleaks/gitleaks:latest \
+            detect \
+            --source /path \
+            --log-opts="--all" \
+            --report-format sarif \
+            --report-path /path/gitleaks-results.sarif \
+            --redact \
+            --exit-code 1 || true
 
       - name: Ensure SARIF file exists for upload
         if: always()
