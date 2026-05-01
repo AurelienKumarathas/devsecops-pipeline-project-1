@@ -2,9 +2,9 @@ name: DevSecOps Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, hardened ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, hardened ]
   workflow_dispatch:
 
 env:
@@ -112,6 +112,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      security-events: write
 
     steps:
       - name: Checkout repository
@@ -119,10 +120,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks
+      - name: Run Gitleaks (git history scan)
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_REPORT_FORMAT: sarif
+          GITLEAKS_REPORT_PATH: gitleaks-results.sarif
 
       - name: Run Gitleaks filesystem scan
         run: |
@@ -130,6 +133,13 @@ jobs:
             ghcr.io/gitleaks/gitleaks:latest \
             detect --source /path --no-git --redact \
             --exit-code 1
+
+      - name: Upload Gitleaks results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
+        if: always()
+        with:
+          sarif_file: gitleaks-results.sarif
+          category: 'secrets-gitleaks'
 
   # ==========================================
   # Container Security
@@ -166,6 +176,46 @@ jobs:
         with:
           sarif_file: 'trivy-container-results.sarif'
           category: 'container-trivy'
+
+  # ==========================================
+  # Deployment (commented out — portfolio context)
+  # ==========================================
+  # deploy:
+  #   name: Deploy - Push to ECR
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 15
+  #   needs: [container-scanning]
+  #   if: github.ref == 'refs/heads/hardened' && github.event_name == 'push'
+  #   # Only runs on the hardened branch — the remediated image is what gets pushed.
+  #   # Omitted from execution to avoid AWS cost in portfolio context.
+  #   # In a real pipeline this job would:
+  #   #   1. Authenticate to ECR via OIDC (no long-lived keys)
+  #   #   2. Tag and push the scanned image
+  #   #   3. Trigger an ECS rolling deploy or update the Lambda function URL
+  #
+  #   permissions:
+  #     contents: read
+  #     id-token: write  # Required for OIDC-based AWS auth (no static credentials)
+  #
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+  #
+  #     - name: Configure AWS credentials (OIDC — no long-lived keys)
+  #       uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+  #         aws-region: eu-west-2
+  #
+  #     - name: Login to Amazon ECR
+  #       run: aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+  #
+  #     - name: Tag and push image to ECR
+  #       run: |
+  #         docker tag devsecops-demo:latest ${{ secrets.ECR_REGISTRY }}/devsecops-demo:${{ github.sha }}
+  #         docker tag devsecops-demo:latest ${{ secrets.ECR_REGISTRY }}/devsecops-demo:latest
+  #         docker push ${{ secrets.ECR_REGISTRY }}/devsecops-demo:${{ github.sha }}
+  #         docker push ${{ secrets.ECR_REGISTRY }}/devsecops-demo:latest
 
   # ==========================================
   # Security Summary
