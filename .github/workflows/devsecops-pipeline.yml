@@ -74,17 +74,11 @@ jobs:
       - name: Run Bandit
         # -r src/: recursive scan of application source
         # -f sarif: SARIF output for Security tab upload
-        # || true: job stays green — findings surface in Security tab,
+        # || true: job stays green - findings surface in Security tab,
         #          not as a pipeline block (consistent with other scanners)
         run: |
           bandit -r src/ -f sarif -o bandit-results.sarif || true
-          FINDING_COUNT=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('bandit-results.sarif'))
-    print(sum(len(r.get('results',[])) for r in d.get('runs',[])))
-except: print(0)
-")
+          FINDING_COUNT=$(jq '[.runs[].results | length] | add // 0' bandit-results.sarif 2>/dev/null || echo 0)
           echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Bandit results to GitHub Security tab
@@ -175,7 +169,7 @@ except: print(0)
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks — filesystem scan (working tree)
+      - name: Run Gitleaks - filesystem scan (working tree)
         # Scans all files present in the working tree at HEAD.
         # This is the primary pass: catches secrets in currently committed files
         # such as hardcoded AWS keys in terraform/main.tf and API keys in src/.
@@ -192,7 +186,7 @@ except: print(0)
             --redact \
             --exit-code 1 || true
 
-      - name: Run Gitleaks — git history scan (all commits)
+      - name: Run Gitleaks - git history scan (all commits)
         # Second pass: walks the full commit graph to catch secrets that were
         # introduced in earlier commits but may have since been removed from HEAD.
         # Complements the filesystem scan for complete historical coverage.
@@ -270,7 +264,7 @@ except: print(0)
           category: 'container-trivy'
 
   # ==========================================
-  # Deployment (commented out — portfolio context)
+  # Deployment (commented out - portfolio context)
   # ==========================================
   # deploy:
   #   name: Deploy - Push to ECR
@@ -278,7 +272,7 @@ except: print(0)
   #   timeout-minutes: 15
   #   needs: [container-scanning]
   #   if: github.ref == 'refs/heads/hardened' && github.event_name == 'push'
-  #   # Only runs on the hardened branch — the remediated image is what gets pushed.
+  #   # Only runs on the hardened branch - the remediated image is what gets pushed.
   #   # Omitted from execution to avoid AWS cost in portfolio context.
   #   # In a real pipeline this job would:
   #   #   1. Authenticate to ECR via OIDC (no long-lived keys)
@@ -293,7 +287,7 @@ except: print(0)
   #     - name: Checkout repository
   #       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
   #
-  #     - name: Configure AWS credentials (OIDC — no long-lived keys)
+  #     - name: Configure AWS credentials (OIDC - no long-lived keys)
   #       uses: aws-actions/configure-aws-credentials@v4
   #       with:
   #         role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
@@ -333,4 +327,4 @@ except: print(0)
           echo "| Secret Detection | Gitleaks | ${{ needs.secret-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Container Scan | Trivy | ${{ needs.container-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Pipeline failures on main are intentional — this branch contains deliberately vulnerable code to validate each security gate. See REMEDIATION.md for the full findings index and the hardened branch for remediated versions of every file." >> $GITHUB_STEP_SUMMARY
+          echo "> Pipeline failures on main are intentional - this branch contains deliberately vulnerable code to validate each security gate. See REMEDIATION.md for the full findings index and the hardened branch for remediated versions of every file." >> $GITHUB_STEP_SUMMARY
