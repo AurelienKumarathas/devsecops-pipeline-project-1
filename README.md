@@ -66,7 +66,7 @@ The [`hardened` branch](https://github.com/AurelienKumarathas/devsecops-pipeline
 
 ![Pipeline Screenshot](screenshots/pipeline-run.png)
 
-*Live GitHub Actions run showing CodeQL passing, Gitleaks catching hardcoded secrets with commit SHA, file path and line number, and all SARIF results uploaded to the Security tab.*
+*Live GitHub Actions run showing the unified pipeline funnel: five parallel security gates (CodeQL, Bandit, Trivy SCA, Trivy IaC, Gitleaks) all feeding into the container scan, with all SARIF results uploaded to the Security tab.*
 
 ---
 
@@ -102,24 +102,24 @@ Beyond running scanners, this project includes three dedicated security analysis
 graph LR
     A[Developer Push] --> B[GitHub Actions]
     B --> C[SAST - CodeQL]
-    B --> CB[SAST - Bandit]
-    B --> D[SCA - Trivy]
-    B --> E[Secret Scan - Gitleaks]
-    B --> F[IaC Scan - Trivy]
-    C --> G[Docker Build]
-    CB --> G
-    D --> G
-    E --> G
-    F --> G
-    G --> H[Container Scan - Trivy]
-    H --> I[AWS Deployment]
-    C --> J[SARIF Upload]
-    CB --> J
-    D --> J
-    E --> J
-    F --> J
-    H --> J
-    J --> K[GitHub Security Tab]
+    B --> D[SAST - Bandit]
+    B --> E[SCA - Trivy]
+    B --> F[Secret Scan - Gitleaks]
+    B --> G[IaC Scan - Trivy]
+    C --> H[Container Scan - Trivy]
+    D --> H
+    E --> H
+    F --> H
+    G --> H
+    H --> I[Security Summary]
+    I --> J[AWS Deployment]
+    C --> K[SARIF Upload]
+    D --> K
+    E --> K
+    F --> K
+    G --> K
+    H --> K
+    K --> L[GitHub Security Tab]
 ```
 
 ---

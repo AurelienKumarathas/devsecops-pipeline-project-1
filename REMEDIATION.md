@@ -46,6 +46,44 @@ During CI on the hardened branch, CodeQL identified 3 additional High severity f
 
 ---
 
+## Bandit — Accepted Risk and `nosec` Rationale
+
+Bandit runs against `src/remediated_app.py` on the `hardened` branch and is expected to exit `0` (zero findings). All HIGH and MEDIUM severity findings from `src/vulnerable_app.py` are fully remediated in the hardened version. One LOW severity finding remains and is formally accepted.
+
+### Findings in `src/vulnerable_app.py` (intentional — `main` branch)
+
+| Rule | Finding | Severity | Confidence | Status |
+|------|---------|----------|------------|--------|
+| B201 | `app.run(debug=True)` — Flask debug mode exposes the Werkzeug interactive debugger | HIGH | HIGH | Remediated: `debug=False` in `remediated_app.py` |
+| B506 | `yaml.load()` with `FullLoader` — arbitrary Python object deserialisation | MEDIUM | HIGH | Remediated: replaced with `yaml.safe_load()` |
+| B602 | `subprocess.check_output(..., shell=True)` — shell metacharacter injection | HIGH | HIGH | Remediated: endpoint removed entirely |
+| B106 | Hardcoded password string assigned to `DATABASE_PASSWORD` | LOW | MEDIUM | Remediated: replaced with `os.environ.get()` |
+| B104 | `app.run(host='0.0.0.0')` — binding to all network interfaces | LOW | MEDIUM | Accepted with `# nosec B104` (see below) |
+
+### Accepted Risk: B104 in `src/remediated_app.py`
+
+```python
+app.run(host='0.0.0.0', port=5000, debug=False)  # nosec B104
+```
+
+**Rule:** B104 — Possible binding to all interfaces  
+**Severity:** LOW | **Confidence:** MEDIUM
+
+**Why it is accepted and not suppressed silently:**
+
+B104 flags any `host='0.0.0.0'` binding as a potential exposure because it makes the socket reachable on all network interfaces, not just localhost. In a VM or bare-metal environment this is a real concern — the process is reachable from any network the host is connected to.
+
+In a containerised deployment, this finding does not represent a real risk for two reasons:
+
+1. **`app.run()` is never the production entrypoint.** The container uses `CMD ["gunicorn", "--bind", "0.0.0.0:5000", "remediated_app:app"]`. The `if __name__ == '__main__':` block containing `app.run()` is only executed during local development, never inside the container.
+2. **Container networking is the actual boundary.** Port exposure is controlled by `docker run -p` or the orchestrator (ECS task definition, Kubernetes Service). A container binding to all internal interfaces does not bypass this — it is a necessary condition for the port mapping to work at all.
+
+**Why `# nosec` rather than removing the line:**
+
+Removing `app.run()` entirely would prevent local development without Docker. The correct response to a known-acceptable finding is `# nosec <rule>` with a written justification — this is a first-class Bandit mechanism that makes the decision auditable. It appears in Bandit's suppression report and in code review, unlike `|| true` which discards the exit code silently with no traceability.
+
+---
+
 ## Viewing the Hardened Code
 
 To compare the vulnerable and hardened versions of any file:
