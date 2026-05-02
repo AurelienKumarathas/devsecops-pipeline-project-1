@@ -17,6 +17,9 @@ jobs:
   # CodeQL: semantic dataflow analysis
   # Traces tainted input through call graphs to dangerous sinks.
   # Catches SQL injection, command injection, SSTI, path traversal.
+  # Note: CodeQL analyze always exits 0 by GitHub design - findings
+  # surface in the Security tab but do not block the job. This is
+  # expected behaviour for CodeQL and is not a soft-fail.
   # ==========================================
   sast-codeql:
     name: SAST - CodeQL Analysis
@@ -45,11 +48,9 @@ jobs:
   # ==========================================
   # SAST - Bandit (parallel with CodeQL)
   # Bandit: fast AST pattern matching
-  # Flags dangerous function calls and insecure patterns instantly.
-  # Complements CodeQL: where CodeQL traces data flow, Bandit flags
-  # the dangerous call site directly (B201 debug=True, B506 yaml.load,
-  # B602 shell=True, B106 hardcoded passwords).
-  # Standard two-scanner SAST split in UK fintech pipelines.
+  # Complements CodeQL: flags dangerous call sites directly.
+  # B201 debug=True, B506 yaml.load, B602 shell=True, B106 hardcoded pw.
+  # No || true - this branch has known findings and must fail this gate.
   # ==========================================
   sast-bandit:
     name: SAST - Bandit Analysis
@@ -72,12 +73,12 @@ jobs:
         run: pip install bandit[sarif]
 
       - name: Run Bandit
-        # -r src/: recursive scan of application source
-        # -f sarif: SARIF output for Security tab upload
-        # || true: job stays green - findings surface in Security tab,
-        #          not as a pipeline block (consistent with other scanners)
+        # No || true - main contains deliberately vulnerable code.
+        # Bandit will find issues (B201, B506, B602, B106) and exit 1.
+        # That failure is correct and expected - it proves the gate works.
+        # if: always() on the upload step handles SARIF upload regardless.
         run: |
-          bandit -r src/ -f sarif -o bandit-results.sarif || true
+          bandit -r src/ -f sarif -o bandit-results.sarif
           FINDING_COUNT=$(jq '[.runs[].results | length] | add // 0' bandit-results.sarif 2>/dev/null || echo 0)
           echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
@@ -154,6 +155,9 @@ jobs:
 
   # ==========================================
   # Secret Detection
+  # No || true on either scan - main has hardcoded secrets in
+  # terraform/main.tf and src/vulnerable_app.py. Both scans must
+  # fail to demonstrate the secret detection gate is working.
   # ==========================================
   secret-scanning:
     name: Secret Detection - Gitleaks
@@ -170,10 +174,8 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks - filesystem scan (working tree)
-        # Scans all files present in the working tree at HEAD.
-        # This is the primary pass: catches secrets in currently committed files
-        # such as hardcoded AWS keys in terraform/main.tf and API keys in src/.
-        # --no-git disables git-log walking so it scans files directly.
+        # No || true - main working tree contains hardcoded secrets.
+        # Gitleaks will exit 1 and this step will fail. That is correct.
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
@@ -184,12 +186,11 @@ jobs:
             --report-format sarif \
             --report-path /path/gitleaks-fs.sarif \
             --redact \
-            --exit-code 1 || true
+            --exit-code 1
 
       - name: Run Gitleaks - git history scan (all commits)
-        # Second pass: walks the full commit graph to catch secrets that were
-        # introduced in earlier commits but may have since been removed from HEAD.
-        # Complements the filesystem scan for complete historical coverage.
+        # No || true - secrets exist in committed history.
+        # Gitleaks will exit 1 and this step will fail. That is correct.
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
@@ -200,7 +201,7 @@ jobs:
             --report-format sarif \
             --report-path /path/gitleaks-history.sarif \
             --redact \
-            --exit-code 1 || true
+            --exit-code 1
 
       - name: Merge SARIF outputs into single file for upload
         if: always()
