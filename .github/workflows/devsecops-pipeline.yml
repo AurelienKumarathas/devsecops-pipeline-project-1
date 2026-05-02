@@ -17,6 +17,9 @@ jobs:
   # CodeQL: semantic dataflow analysis
   # Traces tainted input through call graphs to dangerous sinks.
   # Catches SQL injection, command injection, SSTI, path traversal.
+  # Note: CodeQL analyze always exits 0 by GitHub design - findings
+  # surface in the Security tab but do not block the job. This is
+  # expected behaviour for CodeQL and is not a soft-fail.
   # ==========================================
   sast-codeql:
     name: SAST - CodeQL Analysis
@@ -46,8 +49,7 @@ jobs:
   # SAST - Bandit (parallel with CodeQL)
   # Bandit: fast AST pattern matching
   # Scans remediated_app.py only - expects 0 findings.
-  # Zero findings here vs multiple on main branch demonstrates
-  # that remediation eliminated all Bandit-detectable issues.
+  # No || true - remediated code must pass this gate for real.
   # ==========================================
   sast-bandit:
     name: SAST - Bandit Analysis
@@ -70,11 +72,12 @@ jobs:
         run: pip install bandit[sarif]
 
       - name: Run Bandit (remediated source only)
-        # Scans remediated_app.py only - not vulnerable_app.py which is
-        # retained on this branch for reference/comparison purposes.
-        # Expected result: 0 findings - all issues resolved in remediation.
+        # No || true - remediated_app.py has zero Bandit findings.
+        # If this step fails it means a regression was introduced.
+        # vulnerable_app.py is excluded - it is retained for comparison
+        # only and is not part of the deployable application.
         run: |
-          bandit src/remediated_app.py -f sarif -o bandit-results.sarif || true
+          bandit src/remediated_app.py -f sarif -o bandit-results.sarif
           FINDING_COUNT=$(jq '[.runs[].results | length] | add // 0' bandit-results.sarif 2>/dev/null || echo 0)
           echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
@@ -178,6 +181,8 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks - filesystem scan (working tree)
+        # No || true - the hardened working tree contains no secrets.
+        # If this step fails a secret has been reintroduced - correct to block.
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
@@ -188,9 +193,18 @@ jobs:
             --report-format sarif \
             --report-path /path/gitleaks-fs.sarif \
             --redact \
-            --exit-code 1 || true
+            --exit-code 1
 
       - name: Run Gitleaks - git history scan (all commits)
+        # continue-on-error: true is intentional and documented here.
+        # The git history is shared with main which deliberately contains
+        # hardcoded secrets in terraform/main.tf and src/vulnerable_app.py
+        # as part of the portfolio demonstration. Those commits are real,
+        # the findings are expected, and they are documented in REMEDIATION.md.
+        # The filesystem scan above is the hard gate proving the current
+        # working tree is clean. History findings do not indicate a
+        # failure of remediation on this branch.
+        continue-on-error: true
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
@@ -201,7 +215,7 @@ jobs:
             --report-format sarif \
             --report-path /path/gitleaks-history.sarif \
             --redact \
-            --exit-code 1 || true
+            --exit-code 1
 
       - name: Merge SARIF outputs into single file for upload
         if: always()
