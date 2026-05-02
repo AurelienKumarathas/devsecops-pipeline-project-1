@@ -45,7 +45,7 @@ jobs:
   # ==========================================
   # SAST - Bandit (parallel with CodeQL)
   # Bandit: fast AST pattern matching
-  # Scans remediated_app.py only — expects 0 findings.
+  # Scans remediated_app.py only - expects 0 findings.
   # Zero findings here vs multiple on main branch demonstrates
   # that remediation eliminated all Bandit-detectable issues.
   # ==========================================
@@ -70,18 +70,12 @@ jobs:
         run: pip install bandit[sarif]
 
       - name: Run Bandit (remediated source only)
-        # Scans remediated_app.py only — not vulnerable_app.py which is
+        # Scans remediated_app.py only - not vulnerable_app.py which is
         # retained on this branch for reference/comparison purposes.
-        # Expected result: 0 findings — all issues resolved in remediation.
+        # Expected result: 0 findings - all issues resolved in remediation.
         run: |
           bandit src/remediated_app.py -f sarif -o bandit-results.sarif || true
-          FINDING_COUNT=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('bandit-results.sarif'))
-    print(sum(len(r.get('results',[])) for r in d.get('runs',[])))
-except: print(0)
-")
+          FINDING_COUNT=$(jq '[.runs[].results | length] | add // 0' bandit-results.sarif 2>/dev/null || echo 0)
           echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Bandit results to GitHub Security tab
@@ -183,7 +177,7 @@ except: print(0)
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks — filesystem scan (working tree)
+      - name: Run Gitleaks - filesystem scan (working tree)
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
@@ -196,7 +190,7 @@ except: print(0)
             --redact \
             --exit-code 1 || true
 
-      - name: Run Gitleaks — git history scan (all commits)
+      - name: Run Gitleaks - git history scan (all commits)
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
