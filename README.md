@@ -7,6 +7,8 @@
 | `main` (intentionally vulnerable) | ![main](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/actions/workflows/devsecops-pipeline.yml/badge.svg?branch=main) |
 | `hardened` (fully remediated) | ![hardened](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/actions/workflows/devsecops-pipeline.yml/badge.svg?branch=hardened) |
 
+> 🔒 The `hardened` branch has GitHub branch protection enforced — all 7 status checks must pass before any merge is permitted.
+
 ![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?style=flat&logo=githubactions&logoColor=white)
 ![AWS](https://img.shields.io/badge/Cloud-AWS-FF9900?style=flat&logo=amazonaws&logoColor=white)
 ![CodeQL](https://img.shields.io/badge/SAST-CodeQL-6F42C1?style=flat)
@@ -208,6 +210,7 @@ git checkout hardened
 | Vulnerability Reporting | SARIF + GitHub Security tab | Centralised findings visible in PR reviews, not buried in CI logs |
 | Security Engineering | REMEDIATION.md + hardened branch | Demonstrates ability to fix vulnerabilities, not just find them |
 | Threat Modelling | STRIDE + MITRE ATT&CK + Kill Chain | Structured threat analysis beyond automated scanning |
+| Policy Enforcement | GitHub Branch Protection | All 7 status checks required to pass on `hardened` — pipeline enforced at the policy level, not just defined |
 
 ---
 
