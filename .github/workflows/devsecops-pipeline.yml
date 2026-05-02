@@ -14,6 +14,9 @@ jobs:
 
   # ==========================================
   # SAST - Static Application Security Testing
+  # CodeQL: semantic dataflow analysis
+  # Traces tainted input through call graphs to dangerous sinks.
+  # Catches SQL injection, command injection, SSTI, path traversal.
   # ==========================================
   sast-codeql:
     name: SAST - CodeQL Analysis
@@ -38,6 +41,58 @@ jobs:
         uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
         with:
           category: "/language:python"
+
+  # ==========================================
+  # SAST - Bandit (parallel with CodeQL)
+  # Bandit: fast AST pattern matching
+  # Flags dangerous function calls and insecure patterns instantly.
+  # Complements CodeQL: where CodeQL traces data flow, Bandit flags
+  # the dangerous call site directly (B201 debug=True, B506 yaml.load,
+  # B602 shell=True, B106 hardcoded passwords).
+  # Standard two-scanner SAST split in UK fintech pipelines.
+  # ==========================================
+  sast-bandit:
+    name: SAST - Bandit Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Bandit
+        run: pip install bandit[sarif]
+
+      - name: Run Bandit
+        # -r src/: recursive scan of application source
+        # -f sarif: SARIF output for Security tab upload
+        # || true: job stays green — findings surface in Security tab,
+        #          not as a pipeline block (consistent with other scanners)
+        run: |
+          bandit -r src/ -f sarif -o bandit-results.sarif || true
+          FINDING_COUNT=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('bandit-results.sarif'))
+    print(sum(len(r.get('results',[])) for r in d.get('runs',[])))
+except: print(0)
+")
+          echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Bandit results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
+        if: always()
+        with:
+          sarif_file: bandit-results.sarif
+          category: 'sast-bandit'
 
   # ==========================================
   # SCA - Software Composition Analysis
@@ -156,16 +211,11 @@ jobs:
       - name: Merge SARIF outputs into single file for upload
         if: always()
         run: |
-          # Merge results arrays from both SARIF files.
-          # Falls back to an empty-results SARIF if either file is missing.
           EMPTY='{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"Gitleaks","version":"8.0.0","rules":[]}},"results":[]}]}'
 
           FS_SARIF=$(cat gitleaks-fs.sarif 2>/dev/null || echo "$EMPTY")
           HIST_SARIF=$(cat gitleaks-history.sarif 2>/dev/null || echo "$EMPTY")
 
-          # Combine the results arrays from both runs into a single SARIF file.
-          # jq deduplicates by fingerprint so the same secret found in both
-          # passes appears only once in the Security tab.
           echo "$FS_SARIF" | jq \
             --argjson hist "$HIST_SARIF" \
             '.runs[0].results = (
@@ -266,7 +316,7 @@ jobs:
     name: Security Scan Summary
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [sast-codeql, sca-trivy, iac-scanning, secret-scanning, container-scanning]
+    needs: [sast-codeql, sast-bandit, sca-trivy, iac-scanning, secret-scanning, container-scanning]
     if: always()
 
     steps:
@@ -274,12 +324,13 @@ jobs:
         run: |
           echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Scan Type | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| SAST (CodeQL) | ${{ needs.sast-codeql.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| SCA (Trivy) | ${{ needs.sca-trivy.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| IaC Scanning | ${{ needs.iac-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Secret Detection | ${{ needs.secret-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Container Scan | ${{ needs.container-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan Type | Tool | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| SAST (semantic dataflow) | CodeQL | ${{ needs.sast-codeql.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SAST (pattern matching) | Bandit | ${{ needs.sast-bandit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SCA | Trivy | ${{ needs.sca-trivy.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IaC Scanning | Trivy | ${{ needs.iac-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Detection | Gitleaks | ${{ needs.secret-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container Scan | Trivy | ${{ needs.container-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "> Pipeline failures on main are intentional — this branch contains deliberately vulnerable code to validate each security gate. See REMEDIATION.md for the full findings index and the hardened branch for remediated versions of every file." >> $GITHUB_STEP_SUMMARY
