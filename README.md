@@ -1,6 +1,6 @@
 # 🔐 DevSecOps Pipeline — NexusCore Technologies
 
-> **TL;DR** — A production-style DevSecOps pipeline embedding automated security scanning at every commit for a fictional fintech startup. Five tools (CodeQL, Trivy, Gitleaks, Trivy IaC, Trivy Container) gate every push via GitHub Actions. The `main` branch is **intentionally vulnerable** — each gate fails because it detects what it is supposed to detect. The `hardened` branch is **fully remediated** — all five gates pass. Together they demonstrate the complete security engineering lifecycle: detect, report, fix.
+> **TL;DR** — A production-style DevSecOps pipeline embedding automated security scanning at every commit for a fictional fintech startup. Six tools (CodeQL, Bandit, Trivy, Gitleaks, Trivy IaC, Trivy Container) gate every push via GitHub Actions. The `main` branch is **intentionally vulnerable** — each gate fails because it detects what it is supposed to detect. The `hardened` branch is **fully remediated** — all gates pass. Together they demonstrate the complete security engineering lifecycle: detect, report, fix.
 
 | Branch | Pipeline Status |
 |--------|-----------------|
@@ -10,6 +10,7 @@
 ![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?style=flat&logo=githubactions&logoColor=white)
 ![AWS](https://img.shields.io/badge/Cloud-AWS-FF9900?style=flat&logo=amazonaws&logoColor=white)
 ![CodeQL](https://img.shields.io/badge/SAST-CodeQL-6F42C1?style=flat)
+![Bandit](https://img.shields.io/badge/SAST-Bandit-yellow?style=flat)
 ![Trivy](https://img.shields.io/badge/SCA-Trivy-1904DA?style=flat&logo=aqua&logoColor=white)
 ![Gitleaks](https://img.shields.io/badge/Secrets-Gitleaks-red?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
@@ -24,7 +25,7 @@
 
 NexusCore Technologies is a fictional Series A fintech startup processing card payments for e-commerce merchants. After three security incidents in Q4 — a leaked API key, a dependency with a known CVE reaching production, and an S3 bucket misconfiguration — their investors demanded a demonstrable improvement in security posture before the Series B round.
 
-The solution was a **shift-left security pipeline**: rather than running security scans manually before release, every commit now passes through five automated security gates before it can be merged. Developers see findings inline in pull requests. Nothing reaches production without passing all gates.
+The solution was a **shift-left security pipeline**: rather than running security scans manually before release, every commit now passes through six automated security gates before it can be merged. Developers see findings inline in pull requests. Nothing reaches production without passing all gates.
 
 This repo demonstrates that pipeline end-to-end — including the intentionally vulnerable code that proves each gate catches what it is supposed to catch, and the hardened branch that shows how each finding would be remediated in practice.
 
@@ -34,7 +35,8 @@ This repo demonstrates that pipeline end-to-end — including the intentionally 
 
 | Stage | Tool | Status | Findings |
 |-------|------|--------|----------|
-| SAST — Static Analysis | CodeQL | ✅ Passing | SQL Injection, Command Injection, SSTI detected & reported |
+| SAST — Semantic Dataflow Analysis | CodeQL | ✅ Passing | SQL Injection, Command Injection, SSTI detected & reported |
+| SAST — Pattern Matching | Bandit | ✅ Passing | B201 debug=True, B506 yaml.load, B602 shell=True, B106 hardcoded password detected & reported |
 | SCA — Dependency Scanning | Trivy | 🔴 Intentionally fails | CVE-2020-14343 (Critical) in PyYAML 5.4.1; vulns in Flask 2.0.1 |
 | IaC Security | Trivy IaC | 🔴 Intentionally fails | S3 bucket unencrypted; overly permissive security group |
 | Secret Detection | Gitleaks | 🔴 Intentionally fails | `hashicorp-tf-password` + `generic-api-key` detected in source |
@@ -47,7 +49,7 @@ This repo demonstrates that pipeline end-to-end — including the intentionally 
 
 ## 🔒 Hardened Branch — Remediation Demo
 
-The [`hardened` branch](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/tree/hardened) contains the security-engineered versions of every vulnerable file. All five security gates pass on that branch.
+The [`hardened` branch](https://github.com/AurelienKumarathas/devsecops-pipeline-project-1/tree/hardened) contains the security-engineered versions of every vulnerable file. All security gates pass on that branch.
 
 | File | What changed |
 |------|--------------|
@@ -84,12 +86,13 @@ Beyond running scanners, this project includes three dedicated security analysis
 
 | Tool | Purpose | Stage |
 |------|---------|-------|
-| **CodeQL** | Static Application Security Testing (SAST) — analyses Python source for injection flaws, path traversal, and unsafe API usage | Build |
-| **Trivy** | Software Composition Analysis (SCA) — scans `requirements.txt` for known CVEs | Build |
+| **CodeQL** | SAST — semantic dataflow analysis. Traces tainted input through call graphs to dangerous sinks. Catches SQL injection, command injection, SSTI, and path traversal at the AST level. | Build |
+| **Bandit** | SAST — fast AST pattern matching. Flags dangerous function calls and insecure patterns instantly: `debug=True` (B201), `yaml.load` (B506), `shell=True` (B602), hardcoded passwords (B106). Complements CodeQL — where CodeQL traces data flow, Bandit flags the call site directly. Standard two-scanner SAST split in UK fintech pipelines. | Build |
+| **Trivy** | SCA — scans `requirements.txt` for known CVEs against NVD and OSV databases | Build |
 | **Gitleaks** | Secret Detection — scans entire git history and working tree for credentials, API keys, and tokens | Pre-commit / CI |
-| **Trivy IaC** | Infrastructure as Code Security — scans Terraform for misconfigurations against CIS benchmarks | Build |
+| **Trivy IaC** | IaC Security — scans Terraform for misconfigurations against CIS benchmarks | Build |
 | **Trivy Container** | Container image scanning — checks the built Docker image for OS-level CVEs and misconfigurations | Post-build |
-| **GitHub Security Tab** | Centralised SARIF vulnerability reporting — all tool findings are visible in one place at the PR level | Post-scan |
+| **GitHub Security Tab** | Centralised SARIF vulnerability reporting — all tool findings visible in one place at the PR level | Post-scan |
 
 ---
 
@@ -99,16 +102,19 @@ Beyond running scanners, this project includes three dedicated security analysis
 graph LR
     A[Developer Push] --> B[GitHub Actions]
     B --> C[SAST - CodeQL]
+    B --> CB[SAST - Bandit]
     B --> D[SCA - Trivy]
     B --> E[Secret Scan - Gitleaks]
     B --> F[IaC Scan - Trivy]
     C --> G[Docker Build]
+    CB --> G
     D --> G
     E --> G
     F --> G
     G --> H[Container Scan - Trivy]
     H --> I[AWS Deployment]
     C --> J[SARIF Upload]
+    CB --> J
     D --> J
     E --> J
     F --> J
@@ -127,6 +133,12 @@ Each vulnerability is chosen to exercise a specific security gate. The scanner f
 - **Command Injection** — `subprocess.check_output(..., shell=True)` in `/ping`. Shell metacharacters allow arbitrary OS command execution.
 - **Server-Side Template Injection (SSTI)** — user input interpolated into a `render_template_string()` call. A Jinja2 expression in the URL achieves RCE.
 
+### SAST — Bandit (`src/vulnerable_app.py`)
+- **B201** — `app.run(debug=True)` — Flask debug mode exposes the Werkzeug interactive debugger in production.
+- **B506** — `yaml.load()` with `FullLoader` — deserialises arbitrary Python objects; CVE-2020-14343.
+- **B602** — `subprocess.check_output(..., shell=True)` — shell injection via metacharacters.
+- **B106** — Hardcoded password assigned to `DATABASE_PASSWORD`.
+
 ### SCA — Trivy (`requirements.txt`)
 - **CVE-2020-14343** in PyYAML 5.4.1 — **Critical (CVSSv3 9.8)** — arbitrary code execution via YAML deserialization.
 - Multiple CVEs in Flask 2.0.1.
@@ -138,7 +150,7 @@ Each vulnerability is chosen to exercise a specific security gate. The scanner f
 
 ### Secret Detection — Gitleaks
 - Fake `hashicorp-tf-password` in `terraform/main.tf`.
-- Fake `generic-api-key` in `src/vulnerable_app.py`.
+- Fake GitHub PAT (`ghp_` format) in `src/vulnerable_app.py` and `terraform/main.tf` — detected by Gitleaks `github-pat` rule.
 
 ### Container Security — Trivy (`Dockerfile`)
 - No `USER` instruction — container runs as root.
@@ -186,9 +198,10 @@ git checkout hardened
 
 | Skill | Tool / Technique | What it shows |
 |-------|-----------------|---------------|
-| CI/CD Pipeline Design | GitHub Actions | Multi-job pipeline with dependencies, conditional steps, and SARIF integration |
-| SAST | CodeQL | Python static analysis catching injection flaws at the AST level |
-| SCA | Trivy | CVE matching against known vulnerability databases for direct and transitive dependencies |
+| CI/CD Pipeline Design | GitHub Actions | Multi-job pipeline with parallel execution, dependencies, conditional steps, and SARIF integration |
+| SAST — Semantic Analysis | CodeQL | Python dataflow analysis catching injection flaws by tracing tainted input to dangerous sinks |
+| SAST — Pattern Matching | Bandit | Fast AST-level detection of dangerous call sites; two-scanner SAST split standard in UK fintech |
+| SCA | Trivy | CVE matching against NVD/OSV for direct and transitive dependencies |
 | Secret Detection | Gitleaks | Full git history scanning + working tree filesystem scan |
 | IaC Security | Trivy IaC | CIS benchmark checks on Terraform before cloud resources are provisioned |
 | Container Security | Docker + Trivy | Secure image best practices and OS-level CVE detection |
