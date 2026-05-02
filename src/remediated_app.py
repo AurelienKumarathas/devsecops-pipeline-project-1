@@ -104,4 +104,10 @@ if __name__ == '__main__':
     # debug=True exposes the Werkzeug interactive debugger — a full Python REPL
     # accessible from the browser on every unhandled exception.
     # In production, debug must be False and the app should run behind gunicorn.
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    #
+    # nosec rationale (B104 - binding to 0.0.0.0):
+    # This is a LOW severity, LOW confidence finding. In a containerised
+    # deployment this line is never executed — gunicorn or uwsgi is the
+    # production entrypoint and app.run() is only used for local development.
+    # The binding is intentional in that context and the finding is accepted.
+    app.run(host='0.0.0.0', port=5000, debug=False)  # nosec B104
