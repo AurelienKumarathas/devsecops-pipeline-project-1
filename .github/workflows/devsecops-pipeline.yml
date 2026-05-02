@@ -72,10 +72,10 @@ jobs:
         run: pip install bandit[sarif]
 
       - name: Run Bandit (remediated source only)
-        # No || true - remediated_app.py has zero Bandit findings.
+        # No || true - remediated_app.py has zero Bandit findings after nosec.
         # If this step fails it means a regression was introduced.
-        # vulnerable_app.py is excluded - it is retained for comparison
-        # only and is not part of the deployable application.
+        # vulnerable_app.py is excluded - retained for comparison only,
+        # not part of the deployable application.
         run: |
           bandit src/remediated_app.py -f sarif -o bandit-results.sarif
           FINDING_COUNT=$(jq '[.runs[].results | length] | add // 0' bandit-results.sarif 2>/dev/null || echo 0)
@@ -244,13 +244,19 @@ jobs:
 
   # ==========================================
   # Container Security
+  # Depends on ALL parallel security gates passing before the image
+  # is built and scanned. This enforces correct shift-left ordering:
+  # code quality and dependency issues must be resolved before the
+  # artefact is even constructed. Previously only needed sast-codeql
+  # and sca-trivy - Bandit, IaC, and Gitleaks were disconnected from
+  # the deployment gate, which was architecturally incorrect.
   # Builds Dockerfile.hardened (non-root, pinned SHA digest, patched OS)
   # ==========================================
   container-scanning:
     name: Container Security - Image Scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [sast-codeql, sca-trivy]
+    needs: [sast-codeql, sast-bandit, sca-trivy, iac-scanning, secret-scanning]
     if: always()
     permissions:
       contents: read
