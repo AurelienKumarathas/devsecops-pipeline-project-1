@@ -78,7 +78,6 @@ jobs:
         # to fail on main. The hardened branch scans remediated_app.py
         # and expects zero findings.
         run: |
-          bandit src/vulnerable_app.py -f sarif -o bandit-results.sarif || true
           bandit src/vulnerable_app.py -f sarif -o bandit-results.sarif
           FINDING_COUNT=$(jq '[.runs[].results | length] | add // 0' bandit-results.sarif 2>/dev/null || echo 0)
           echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
