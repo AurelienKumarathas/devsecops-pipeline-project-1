@@ -66,9 +66,23 @@ The [`hardened` branch](https://github.com/AurelienKumarathas/devsecops-pipeline
 
 ## 📸 Pipeline in Action
 
-![Pipeline Screenshot](screenshots/pipeline-run.png)
+### ✅ Hardened Branch — All Gates Pass
 
-*Live GitHub Actions run showing the unified pipeline funnel: five parallel security gates (CodeQL, Bandit, Trivy SCA, Trivy IaC, Gitleaks) all feeding into the container scan, with all SARIF results uploaded to the Security tab.*
+![Hardened Pipeline](screenshots/pipeline-run.png)
+
+*All 7 jobs green on the `hardened` branch. Bandit findings: 0. Gitleaks findings: 0. Every security gate passes after remediation.*
+
+### 🔴 Main Branch — Intentional Failures
+
+![Main Pipeline](screenshots/pipeline-run-main.png)
+
+*Intentional failures on `main` — Bandit, Trivy SCA, Trivy IaC, Gitleaks, and Container Scan all fail because they detect what they are supposed to detect. Pipeline failures on main are by design.*
+
+### 🔍 Centralised Security Reporting
+
+![Security Tab](screenshots/security-tab.png)
+
+*All SARIF reports from CodeQL, Bandit, Trivy, and Gitleaks feed into the GitHub Security tab — findings visible in one place at the PR level, not buried in CI logs.*
 
 ---
 
