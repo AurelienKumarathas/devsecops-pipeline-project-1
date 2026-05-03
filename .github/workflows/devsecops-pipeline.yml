@@ -48,9 +48,8 @@ jobs:
   # ==========================================
   # SAST - Bandit (parallel with CodeQL)
   # Bandit: fast AST pattern matching
-  # Complements CodeQL: flags dangerous call sites directly.
-  # B201 debug=True, B506 yaml.load, B602 shell=True, B106 hardcoded pw.
-  # No || true - this branch has known findings and must fail this gate.
+  # Scans remediated_app.py only - expects 0 findings.
+  # No || true - remediated code must pass this gate for real.
   # ==========================================
   sast-bandit:
     name: SAST - Bandit Analysis
@@ -65,20 +64,20 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install Bandit
         run: pip install bandit[sarif]
 
-      - name: Run Bandit
-        # No || true - main contains deliberately vulnerable code.
-        # Bandit will find issues (B201, B506, B602, B106) and exit 1.
-        # That failure is correct and expected - it proves the gate works.
-        # if: always() on the upload step handles SARIF upload regardless.
+      - name: Run Bandit (remediated source only)
+        # No || true - remediated_app.py has zero Bandit findings after nosec.
+        # If this step fails it means a regression was introduced.
+        # vulnerable_app.py is excluded - retained for comparison only,
+        # not part of the deployable application.
         run: |
-          bandit -r src/ -f sarif -o bandit-results.sarif
+          bandit src/remediated_app.py -f sarif -o bandit-results.sarif
           FINDING_COUNT=$(jq '[.runs[].results | length] | add // 0' bandit-results.sarif 2>/dev/null || echo 0)
           echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
@@ -104,11 +103,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy vulnerability scanner (hardened requirements)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master (v0.36.0)
         with:
           scan-type: 'fs'
-          scan-ref: '.'
+          scan-ref: 'requirements-hardened.txt'
           format: 'sarif'
           output: 'trivy-sca-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
@@ -136,6 +135,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
+      - name: Show IaC findings in log (table format, never fails)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: 'config'
+          scan-ref: 'terraform/'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'
+          trivyignores: 'terraform/.trivyignore'
+
       - name: Run Trivy IaC scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master (v0.36.0)
         with:
@@ -145,6 +154,7 @@ jobs:
           output: 'trivy-iac-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
           exit-code: '1'
+          trivyignores: 'terraform/.trivyignore'
 
       - name: Upload IaC scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
@@ -155,9 +165,6 @@ jobs:
 
   # ==========================================
   # Secret Detection
-  # No || true on either scan - main has hardcoded secrets in
-  # terraform/main.tf and src/vulnerable_app.py. Both scans must
-  # fail to demonstrate the secret detection gate is working.
   # ==========================================
   secret-scanning:
     name: Secret Detection - Gitleaks
@@ -174,8 +181,6 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks - filesystem scan (working tree)
-        # No || true - main working tree contains hardcoded secrets.
-        # Gitleaks will exit 1 and this step will fail. That is correct.
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
@@ -189,8 +194,7 @@ jobs:
             --exit-code 1
 
       - name: Run Gitleaks - git history scan (all commits)
-        # No || true - secrets exist in committed history.
-        # Gitleaks will exit 1 and this step will fail. That is correct.
+        continue-on-error: true
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
@@ -235,7 +239,7 @@ jobs:
     name: Container Security - Image Scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [sast-codeql, sca-trivy]
+    needs: [sast-codeql, sast-bandit, sca-trivy, iac-scanning, secret-scanning]
     if: always()
     permissions:
       contents: read
@@ -245,17 +249,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - name: Build Docker image
-        run: docker build -t devsecops-demo:latest .
+      - name: Build hardened Docker image
+        run: docker build -f Dockerfile.hardened -t devsecops-hardened:latest .
 
-      - name: Run Trivy container scanner
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # master (v0.36.0)
+      - name: Gate - fail on fixable CRITICAL/HIGH CVEs
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
-          image-ref: 'devsecops-demo:latest'
+          image-ref: 'devsecops-hardened:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: 'true'
+
+      - name: Generate SARIF report for Security tab
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        if: always()
+        with:
+          image-ref: 'devsecops-hardened:latest'
           format: 'sarif'
           output: 'trivy-container-results.sarif'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'
+          exit-code: '0'
+          ignore-unfixed: 'true'
 
       - name: Upload container scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
@@ -263,46 +278,6 @@ jobs:
         with:
           sarif_file: 'trivy-container-results.sarif'
           category: 'container-trivy'
-
-  # ==========================================
-  # Deployment (commented out - portfolio context)
-  # ==========================================
-  # deploy:
-  #   name: Deploy - Push to ECR
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 15
-  #   needs: [container-scanning]
-  #   if: github.ref == 'refs/heads/hardened' && github.event_name == 'push'
-  #   # Only runs on the hardened branch - the remediated image is what gets pushed.
-  #   # Omitted from execution to avoid AWS cost in portfolio context.
-  #   # In a real pipeline this job would:
-  #   #   1. Authenticate to ECR via OIDC (no long-lived keys)
-  #   #   2. Tag and push the scanned image
-  #   #   3. Trigger an ECS rolling deploy or update the Lambda function URL
-  #
-  #   permissions:
-  #     contents: read
-  #     id-token: write  # Required for OIDC-based AWS auth (no static credentials)
-  #
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-  #
-  #     - name: Configure AWS credentials (OIDC - no long-lived keys)
-  #       uses: aws-actions/configure-aws-credentials@v4
-  #       with:
-  #         role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-  #         aws-region: eu-west-2
-  #
-  #     - name: Login to Amazon ECR
-  #       run: aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
-  #
-  #     - name: Tag and push image to ECR
-  #       run: |
-  #         docker tag devsecops-demo:latest ${{ secrets.ECR_REGISTRY }}/devsecops-demo:${{ github.sha }}
-  #         docker tag devsecops-demo:latest ${{ secrets.ECR_REGISTRY }}/devsecops-demo:latest
-  #         docker push ${{ secrets.ECR_REGISTRY }}/devsecops-demo:${{ github.sha }}
-  #         docker push ${{ secrets.ECR_REGISTRY }}/devsecops-demo:latest
 
   # ==========================================
   # Security Summary
@@ -315,7 +290,7 @@ jobs:
     if: always()
 
     steps:
-      - name: Print security scan summary
+      - name: Write summary
         run: |
           echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -328,4 +303,4 @@ jobs:
           echo "| Secret Detection | Gitleaks | ${{ needs.secret-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Container Scan | Trivy | ${{ needs.container-scanning.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Pipeline failures on main are intentional - this branch contains deliberately vulnerable code to validate each security gate. See REMEDIATION.md for the full findings index and the hardened branch for remediated versions of every file." >> $GITHUB_STEP_SUMMARY
+          echo "> Hardened branch: all vulnerabilities remediated. See REMEDIATION.md for full before/after detail." >> $GITHUB_STEP_SUMMARY

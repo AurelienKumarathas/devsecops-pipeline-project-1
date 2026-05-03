@@ -33,12 +33,12 @@ This repo demonstrates that pipeline end-to-end — including the intentionally 
 
 ---
 
-## 📊 Pipeline Results
+## 📊 Pipeline Results — `main` branch
 
 | Stage | Tool | Status | Findings |
 |-------|------|--------|----------|
 | SAST — Semantic Dataflow Analysis | CodeQL | ✅ Passing | SQL Injection, Command Injection, SSTI detected & reported |
-| SAST — Pattern Matching | Bandit | ✅ Passing | B201 debug=True, B506 yaml.load, B602 shell=True, B106 hardcoded password detected & reported |
+| SAST — Pattern Matching | Bandit | 🔴 Intentionally fails | B201 debug=True, B506 yaml.load, B602 shell=True, B106 hardcoded password detected |
 | SCA — Dependency Scanning | Trivy | 🔴 Intentionally fails | CVE-2020-14343 (Critical) in PyYAML 5.4.1; vulns in Flask 2.0.1 |
 | IaC Security | Trivy IaC | 🔴 Intentionally fails | S3 bucket unencrypted; overly permissive security group |
 | Secret Detection | Gitleaks | 🔴 Intentionally fails | `hashicorp-tf-password` + `generic-api-key` detected in source |
