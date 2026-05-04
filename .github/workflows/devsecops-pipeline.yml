@@ -49,7 +49,10 @@ jobs:
   # SAST - Bandit (parallel with CodeQL)
   # Bandit: fast AST pattern matching
   # Scans remediated_app.py only - expects 0 findings.
-  # No || true - remediated code must pass this gate for real.
+  # --exit-code 1 is required: Bandit exits 0 when using -f sarif -o
+  # regardless of findings. This flag restores blocking behaviour so
+  # any future regression fails the job rather than passing silently.
+  # No || true - remediated_app.py has zero findings after nosec.
   # ==========================================
   sast-bandit:
     name: SAST - Bandit Analysis
@@ -72,12 +75,14 @@ jobs:
         run: pip install bandit[sarif]
 
       - name: Run Bandit (remediated source only)
-        # No || true - remediated_app.py has zero Bandit findings after nosec.
+        # --exit-code 1 is required: Bandit exits 0 when using -f sarif -o
+        # regardless of findings. This flag restores blocking behaviour.
+        # No || true - remediated_app.py has zero Bandit findings.
         # If this step fails it means a regression was introduced.
         # vulnerable_app.py is excluded - retained for comparison only,
         # not part of the deployable application.
         run: |
-          bandit src/remediated_app.py -f sarif -o bandit-results.sarif
+          bandit src/remediated_app.py -f sarif -o bandit-results.sarif --exit-code 1
           FINDING_COUNT=$(jq '[.runs[].results | length] | add // 0' bandit-results.sarif 2>/dev/null || echo 0)
           echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
