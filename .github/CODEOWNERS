@@ -1,0 +1,32 @@
+# CODEOWNERS — NexusCore DevSecOps Pipeline
+#
+# Code owners are automatically requested for review when a PR
+# touches the files or paths listed below.
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+*                                     @AurelienKumarathas
+
+# CI/CD pipeline — any change to the workflow requires security review
+.github/workflows/                    @AurelienKumarathas
+
+# Hardened application source — changes require security sign-off
+src/remediated_app.py                 @AurelienKumarathas
+
+# Dependency manifests — CVE surface, requires review
+requirements*.txt                     @AurelienKumarathas
+
+# Container definitions — image hardening, requires review
+Dockerfile*                           @AurelienKumarathas
+
+# Infrastructure as Code — cloud resource changes, requires review
+terraform/                            @AurelienKumarathas
+
+# Security configuration — scanner configs, allowlists, ignores
+.gitleaks.toml                        @AurelienKumarathas
+.trivyignore                          @AurelienKumarathas
+terraform/.trivyignore                @AurelienKumarathas
+
+# Remediation and security documentation
+REMEDIATION.md                        @AurelienKumarathas
+SECURITY.md                           @AurelienKumarathas
