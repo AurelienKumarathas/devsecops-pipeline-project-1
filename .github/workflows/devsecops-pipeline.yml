@@ -49,10 +49,10 @@ jobs:
   # SAST - Bandit (parallel with CodeQL)
   # Bandit: fast AST pattern matching
   # Scans remediated_app.py only - expects 0 findings.
-  # --exit-code 1 is required: Bandit exits 0 when using -f sarif -o
-  # regardless of findings. This flag restores blocking behaviour so
-  # any future regression fails the job rather than passing silently.
-  # No || true - remediated_app.py has zero findings after nosec.
+  # Bandit exits 1 on any finding by default, including when writing
+  # to -o file in SARIF format. No --exit-zero flag is used, so any
+  # finding will fail this job. No || true either - this is a hard gate.
+  # remediated_app.py has zero findings so this job passes cleanly.
   # ==========================================
   sast-bandit:
     name: SAST - Bandit Analysis
@@ -75,14 +75,13 @@ jobs:
         run: pip install bandit[sarif]
 
       - name: Run Bandit (remediated source only)
-        # --exit-code 1 is required: Bandit exits 0 when using -f sarif -o
-        # regardless of findings. This flag restores blocking behaviour.
-        # No || true - remediated_app.py has zero Bandit findings.
-        # If this step fails it means a regression was introduced.
+        # Bandit exits 1 on any finding by default (including SARIF file mode).
+        # No --exit-zero flag, no || true - this is a hard gate.
+        # If this step fails a regression has been introduced.
         # vulnerable_app.py is excluded - retained for comparison only,
         # not part of the deployable application.
         run: |
-          bandit src/remediated_app.py -f sarif -o bandit-results.sarif --exit-code 1
+          bandit src/remediated_app.py -f sarif -o bandit-results.sarif
           FINDING_COUNT=$(jq '[.runs[].results | length] | add // 0' bandit-results.sarif 2>/dev/null || echo 0)
           echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
@@ -186,8 +185,6 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks - filesystem scan (working tree)
-        # No || true - the hardened working tree contains no secrets.
-        # If this step fails a secret has been reintroduced - correct to block.
         run: |
           docker run --rm \
             -v "$(pwd):/path" \
@@ -249,13 +246,6 @@ jobs:
 
   # ==========================================
   # Container Security
-  # Depends on ALL parallel security gates passing before the image
-  # is built and scanned. This enforces correct shift-left ordering:
-  # code quality and dependency issues must be resolved before the
-  # artefact is even constructed. Previously only needed sast-codeql
-  # and sca-trivy - Bandit, IaC, and Gitleaks were disconnected from
-  # the deployment gate, which was architecturally incorrect.
-  # Builds Dockerfile.hardened (non-root, pinned SHA digest, patched OS)
   # ==========================================
   container-scanning:
     name: Container Security - Image Scan
