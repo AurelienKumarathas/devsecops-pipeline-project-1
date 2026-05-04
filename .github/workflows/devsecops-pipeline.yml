@@ -35,13 +35,13 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
+        uses: github/codeql-action/init@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           languages: python
           queries: security-extended
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
+        uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         with:
           category: "/language:python"
 
@@ -53,6 +53,7 @@ jobs:
   # to -o file in SARIF format. No --exit-zero flag is used, so any
   # finding will fail this job. No || true either - this is a hard gate.
   # remediated_app.py has zero findings so this job passes cleanly.
+  # Bandit pinned to 1.8.3 for reproducible builds.
   # ==========================================
   sast-bandit:
     name: SAST - Bandit Analysis
@@ -72,7 +73,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install Bandit
-        run: pip install bandit[sarif]
+        run: pip install bandit[sarif]==1.8.3
 
       - name: Run Bandit (remediated source only)
         # Bandit exits 1 on any finding by default (including SARIF file mode).
@@ -86,7 +87,7 @@ jobs:
           echo "Bandit findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Bandit results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         if: always()
         with:
           sarif_file: bandit-results.sarif
@@ -118,7 +119,7 @@ jobs:
           exit-code: '1'
 
       - name: Upload Trivy SCA results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         if: always()
         with:
           sarif_file: 'trivy-sca-results.sarif'
@@ -161,7 +162,7 @@ jobs:
           trivyignores: 'terraform/.trivyignore'
 
       - name: Upload IaC scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         if: always()
         with:
           sarif_file: 'trivy-iac-results.sarif'
@@ -238,7 +239,7 @@ jobs:
           echo "Gitleaks findings: $FINDING_COUNT" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Gitleaks results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         if: always()
         with:
           sarif_file: gitleaks-results.sarif
@@ -246,13 +247,18 @@ jobs:
 
   # ==========================================
   # Container Security
+  # Depends on ALL parallel security gates passing before the image
+  # is built and scanned. `if: always()` has been removed - the job
+  # now defaults to `if: success()`, meaning the image is only built
+  # when every upstream gate (CodeQL, Bandit, SCA, IaC, Gitleaks)
+  # passes. This enforces correct shift-left ordering.
+  # Builds Dockerfile.hardened (non-root, pinned SHA digest, patched OS)
   # ==========================================
   container-scanning:
     name: Container Security - Image Scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [sast-codeql, sast-bandit, sca-trivy, iac-scanning, secret-scanning]
-    if: always()
     permissions:
       contents: read
       security-events: write
@@ -285,7 +291,7 @@ jobs:
           ignore-unfixed: 'true'
 
       - name: Upload container scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a  # v3
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7  # v4
         if: always()
         with:
           sarif_file: 'trivy-container-results.sarif'
