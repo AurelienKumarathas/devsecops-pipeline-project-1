@@ -37,7 +37,7 @@ This repo demonstrates that pipeline end-to-end — including the intentionally 
 
 | Stage | Tool | Status | Findings |
 |-------|------|--------|----------|
-| SAST — Semantic Dataflow Analysis | CodeQL | ✅ Passing | SQL Injection, Command Injection, SSTI detected & reported |
+| SAST — Semantic Dataflow Analysis | CodeQL | ✅ Passing | SQL Injection, Command Injection, SSTI detected & reported (CodeQL findings are enforced via review in the Security tab rather than by failing the job) |
 | SAST — Pattern Matching | Bandit | 🔴 Intentionally fails | B201 debug=True, B506 yaml.load, B602 shell=True, B106 hardcoded password detected |
 | SCA — Dependency Scanning | Trivy | 🔴 Intentionally fails | CVE-2020-14343 (Critical) in PyYAML 5.4.1; vulns in Flask 2.0.1 |
 | IaC Security | Trivy IaC | 🔴 Intentionally fails | S3 bucket unencrypted; overly permissive security group |
@@ -102,10 +102,10 @@ Beyond running scanners, this project includes three dedicated security analysis
 
 | Tool | Purpose | Stage |
 |------|---------|-------|
-| **CodeQL** | SAST — semantic dataflow analysis. Traces tainted input through call graphs to dangerous sinks. Catches SQL injection, command injection, SSTI, and path traversal at the AST level. | Build |
+| **CodeQL** | SAST — semantic dataflow analysis. Traces tainted input through call graphs to dangerous sinks. Catches SQL injection, command injection, SSTI, and path traversal at the AST level. Findings are surfaced and triaged via the GitHub Security tab rather than by failing the job directly. | Build |
 | **Bandit** | SAST — fast AST pattern matching. Flags dangerous function calls and insecure patterns instantly: `debug=True` (B201), `yaml.load` (B506), `shell=True` (B602), hardcoded passwords (B106). Complements CodeQL — where CodeQL traces data flow, Bandit flags the call site directly. Standard two-scanner SAST split in UK fintech pipelines. | Build |
 | **Trivy** | SCA — scans `requirements.txt` for known CVEs against NVD and OSV databases | Build |
-| **Gitleaks** | Secret Detection — scans entire git history and working tree for credentials, API keys, and tokens | Pre-commit / CI |
+| **Gitleaks** | Secret Detection — scans the current working tree as a hard gate and also scans full git history for advisory findings on legacy commits. | Pre-commit / CI |
 | **Trivy IaC** | IaC Security — scans Terraform for misconfigurations against CIS benchmarks | Build |
 | **Trivy Container** | Container image scanning — checks the built Docker image for OS-level CVEs and misconfigurations | Post-build |
 | **GitHub Security Tab** | Centralised SARIF vulnerability reporting — all tool findings visible in one place at the PR level | Post-scan |
